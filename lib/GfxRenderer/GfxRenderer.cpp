@@ -443,6 +443,16 @@ static AlignedMemRect screenRectToAlignedMemRect(GfxRenderer::Orientation orient
   return out;
 }
 
+bool GfxRenderer::getAlignedDisplayRect(int x, int y, int width, int height, HalDisplay::DisplayMemoryRect& out) const {
+  out = {};
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x >= getScreenWidth() || y >= getScreenHeight() ||
+      width > getScreenWidth() - x || height > getScreenHeight() - y) return false;
+  const auto rect = screenRectToAlignedMemRect(orientation, x, y, width, height, panelWidth, panelHeight);
+  if (!rect.valid) return false;
+  out = {rect.x, rect.y, rect.w, rect.h};
+  return true;
+}
+
 enum class TextRotation { None, Rotated90CW };
 
 // Shared glyph rendering logic for normal and rotated text.

@@ -1,5 +1,7 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
+#include <Logging.h>
+#include <esp_timer.h>
 
 // Global HalDisplay instance
 HalDisplay display;
@@ -76,6 +78,33 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
 }
 
 void HalDisplay::waitRefreshComplete() { einkDisplay.waitRefreshComplete(); }
+
+void HalDisplay::displayBufferMeasuredFast(DisplayMeasurement& measurement) {
+  const int64_t start = esp_timer_get_time();
+  einkDisplay.displayBufferMeasured(EInkDisplay::FAST_REFRESH, measurement);
+  measurement.callStartUs = start;
+  measurement.totalUs = esp_timer_get_time() - start;
+}
+
+void HalDisplay::displayBufferMeasured(RefreshMode mode, DisplayMeasurement& measurement) {
+  const int64_t start = esp_timer_get_time();
+  if (gpio.deviceIsX3() && mode == HALF_REFRESH) einkDisplay.requestResync(1);
+  einkDisplay.displayBufferMeasured(convertRefreshMode(mode), measurement);
+  measurement.callStartUs = start;
+  measurement.totalUs = esp_timer_get_time() - start;
+}
+
+HalDisplay::WindowFastResult HalDisplay::displayWindowFastExperimental(const DisplayMemoryRect& rect,
+                                                                    DisplayMeasurement& measurement) {
+  const int64_t start = esp_timer_get_time();
+  const auto result = einkDisplay.displayWindowFastExperimental(rect, measurement);
+  if (result != WindowFastResult::Success) {
+    LOG_ERR("HAL", "X3 window experiment rejected/failed: status=%u", static_cast<unsigned>(result));
+  }
+  measurement.callStartUs = start;
+  measurement.totalUs = esp_timer_get_time() - start;
+  return result;
+}
 
 bool HalDisplay::supportsAsyncRefresh() const { return einkDisplay.supportsAsyncRefresh(); }
 

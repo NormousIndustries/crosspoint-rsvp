@@ -50,6 +50,12 @@ class HalDisplay {
                             bool fromProgmem = false) const;
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+  using DisplayMeasurement = freeink::DisplayMeasurement;
+  void displayBufferMeasuredFast(DisplayMeasurement& measurement);
+  void displayBufferMeasured(RefreshMode mode, DisplayMeasurement& measurement);
+  using WindowFastResult = freeink::WindowFastResult;
+  using DisplayMemoryRect = freeink::DisplayMemoryRect;
+  WindowFastResult displayWindowFastExperimental(const DisplayMemoryRect& rect, DisplayMeasurement& measurement);
   // Non-blocking refresh (shadow-free): starts the panel waveform and returns
   // while the panel refreshes on its own. The framebuffer must stay untouched
   // until waitRefreshComplete(), and the caller must rebuild the differential

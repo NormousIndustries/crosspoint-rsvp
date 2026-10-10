@@ -29,6 +29,7 @@ class RsvpDisplayTestActivity final : public Activity {
     int64_t displayStart;
     int64_t displayReturn;
     uint16_t word;
+    HalDisplay::DisplayMeasurement panel;
   };
 
   GfxRenderer::Orientation previousOrientation = GfxRenderer::Portrait;
@@ -55,6 +56,7 @@ class RsvpDisplayTestActivity final : public Activity {
   uint16_t sampleCount = 0;
   // Inline storage: one fallible activity allocation, no per-transition heap work.
   Sample samples[WORD_COUNT - 1]{};
+  HalDisplay::DisplayMeasurement panelMeasurement;
   uint32_t minimumFreeHeap = UINT32_MAX;
   uint32_t minimumLargestBlock = UINT32_MAX;
   uint32_t lastFreeHeap = 0;

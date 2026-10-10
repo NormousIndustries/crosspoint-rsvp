@@ -1,5 +1,11 @@
 # X3 RSVP v0.1A hardware test
 
+The window prototype adds buffered `PANEL`/`WAVE` instrumentation to this
+full-frame test and suppresses SDK wait messages during captured calls. See
+[the window prototype handoff](x3-window-refresh-prototype.md) for current timing
+definitions and the separate manual-only settings entry. The original v0.1A
+description below documents the pre-instrumentation behavior.
+
 This experiment measures the stock synchronous X3 display path. It does not
 establish that the panel can deliver 300, 375, or 500 WPM until it is tested on
 physical hardware. The baseline is CrossPoint 1.6.5 (`93e98bb7`) and FreeInk SDK

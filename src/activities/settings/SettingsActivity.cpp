@@ -35,6 +35,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "activities/util/RsvpDisplayTestActivity.h"
+#include "activities/util/X3WindowTestActivity.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
@@ -112,8 +113,9 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_ABOUT, SettingAction::About));
   if (gpio.deviceIsX3()) {
-    systemSettings.reserve(systemSettings.size() + 2);
+    systemSettings.reserve(systemSettings.size() + 3);
     systemSettings.push_back(SettingInfo::Action(StrId::STR_RSVP_DISPLAY_TEST, SettingAction::RsvpDisplayTest));
+    systemSettings.push_back(SettingInfo::Action(StrId::STR_X3_WINDOW_TEST, SettingAction::X3WindowTest));
   }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   readerSettings.insert(readerSettings.begin(),
@@ -457,6 +459,13 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::None:
         // Do nothing
+        break;
+      case SettingAction::X3WindowTest:
+        if (auto activity = makeUniqueNoThrow<X3WindowTestActivity>(renderer, mappedInput)) {
+          startActivityForResult(std::move(activity), nullptr);
+        } else {
+          LOG_ERR("SETTINGS", "OOM: X3WindowTestActivity");
+        }
         break;
     }
     return;  // Results will be handled in the result handler, so we can return early here

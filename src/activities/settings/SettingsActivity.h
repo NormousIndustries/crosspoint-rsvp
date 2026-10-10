@@ -30,6 +30,7 @@ enum class SettingAction {
   HomeButton,
   About,
   RsvpDisplayTest,
+  X3WindowTest,
 };
 
 struct SettingInfo {

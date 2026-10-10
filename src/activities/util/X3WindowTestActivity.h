@@ -1,0 +1,38 @@
+#pragma once
+
+#include "activities/Activity.h"
+#include "components/themes/BaseTheme.h"
+
+// Supervised single-step proof; no scheduler or repeated-run mode.
+class X3WindowTestActivity final : public Activity {
+ public:
+  X3WindowTestActivity(GfxRenderer& renderer, MappedInputManager& input)
+      : Activity("X3WindowTest", renderer, input) {}
+  void onEnter() override;
+  void onExit() override;
+  void loop() override;
+  void render(RenderLock&& lock) override;
+  bool preventAutoSleep() override { return true; }
+  bool handleForcedRefresh() override { return true; }
+
+ private:
+  enum class Geometry : uint8_t { FullFrame, FullWidth, Region };
+  enum class Job : uint8_t { None, Baseline, Transition };
+  enum Control : uint8_t { STEP = 1, CLEAN = 2, GEOMETRY = 4, EXIT = 8 };
+  GfxRenderer::Orientation previousOrientation = GfxRenderer::Portrait;
+  GfxRenderer::RenderMode previousRenderMode = GfxRenderer::BW;
+  Rect safeRect, patternRect, screenRect;
+  HalDisplay::DisplayMemoryRect memoryRect;
+  HalDisplay::DisplayMeasurement measurement;
+  HalDisplay::WindowFastResult result = HalDisplay::WindowFastResult::InvalidState;
+  Geometry geometry = Geometry::Region;
+  Job job = Job::Baseline;
+  uint8_t pendingControls = 0;
+  bool patternB = false, baselineValid = false, reportPending = false, lastWasBaseline = true;
+  uint16_t cleanupCount = 0, transitions = 0;
+  uint32_t freeHeap = 0, minimumHeap = 0, largestBlock = 0;
+  void updateGeometry();
+  void drawPattern();
+  void drawBaseline();
+  void printReport();
+};

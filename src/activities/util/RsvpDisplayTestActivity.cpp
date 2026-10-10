@@ -167,15 +167,17 @@ void RsvpDisplayTestActivity::render(RenderLock&& lock) {
   if (job == DisplayJob::Timed && !playing.load()) return;
   const int64_t displayStart = esp_timer_get_time();
   // The HAL call includes the driver BUSY wait. No framebuffer reuse before return.
-  display.displayBuffer(initialFrame ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+  if (job == DisplayJob::Timed) display.displayBufferMeasuredFast(panelMeasurement);
+  else display.displayBuffer(initialFrame ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
   const int64_t displayReturn = esp_timer_get_time();
   initialFrame = false;
   displayedWord = targetWord;
   if (job == DisplayJob::Timed) {
-    samples[sampleCount++] = {committedDeadline, renderStart, rasterDone, displayStart, displayReturn, displayedWord};
+    samples[sampleCount++] = {committedDeadline, renderStart, rasterDone, displayStart, displayReturn, displayedWord, panelMeasurement};
     // Rebase on actual start: an over-budget call makes the next word due as
     // soon as the display is available, without advancing across missed slots.
     nextDeadline = renderStart + 60000000LL / runWpm;
+    if (panelMeasurement.timeout || panelMeasurement.busyNotObserved) playing.store(false);
     if (displayedWord + 1 == WORD_COUNT) playing.store(false);
   } else if (runNeedsBaseline && playing.load()) {
     baselineStart = renderStart;
@@ -267,6 +269,16 @@ void RsvpDisplayTestActivity::printReport(const char* reason) {
     LOG_INF("RSVP", "STAMP n=%u word=%u deadline_us=%lld start_us=%lld raster_done_us=%lld call_us=%lld return_us=%lld",
             i + 1, sample.word + 1, sample.deadline, sample.renderStart, sample.rasterDone, sample.displayStart,
             sample.displayReturn);
+    const auto& panel = sample.panel;
+    LOG_INF("RSVP", "WAVE n=%u BUSY_complete_us=%lld DRF_to_complete_us=%lld observed_LOW_to_complete_us=%lld setup_other_us=%lu",
+            i + 1, panel.busyCompleteUs, panel.busyCompleteUs ? panel.busyCompleteUs - panel.drfUs : 0,
+            panel.busyObservedUs ? panel.busyCompleteUs - panel.busyObservedUs : 0,
+            static_cast<unsigned long>(panel.totalUs - panel.newUs - panel.oldUs - panel.waitUs));
+    LOG_INF("RSVP", "PANEL n=%u fast=%u refreshes=%u NEW_bytes=%lu OLD_bytes=%lu NEW_us=%lu OLD_us=%lu wait_us=%lu total_us=%lu DRF_us=%lld BUSY_observed_us=%lld timeout=%u assertion_missing=%u",
+            i + 1, panel.effectiveFast, panel.refreshCount, static_cast<unsigned long>(panel.newBytes),
+            static_cast<unsigned long>(panel.oldBytes), static_cast<unsigned long>(panel.newUs),
+            static_cast<unsigned long>(panel.oldUs), static_cast<unsigned long>(panel.waitUs),
+            static_cast<unsigned long>(panel.totalUs), panel.drfUs, panel.busyObservedUs, panel.timeout, panel.busyNotObserved);
     LOG_INF("RSVP", "DELTA n=%u raster_us=%lld display_us=%lld service_us=%lld start_interval_us=%lld completion_interval_us=%lld late_us=%lld miss=%u",
             i + 1, sample.rasterDone - sample.renderStart, sample.displayReturn - sample.displayStart,
             sample.displayReturn - sample.renderStart,

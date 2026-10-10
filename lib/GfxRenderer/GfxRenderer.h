@@ -438,6 +438,7 @@ class GfxRenderer {
   uint16_t getDisplayWidth() const { return panelWidth; }
   uint16_t getDisplayHeight() const { return panelHeight; }
   uint16_t getDisplayWidthBytes() const { return panelWidthBytes; }
+  bool getAlignedDisplayRect(int x, int y, int width, int height, HalDisplay::DisplayMemoryRect& out) const;
 
   // Region cache: take a logical (orientation-aware) rect, hit the framebuffer
   // bytes that the rect can have touched, and pump them in or out of a caller-
