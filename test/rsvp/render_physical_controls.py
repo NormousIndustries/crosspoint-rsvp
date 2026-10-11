@@ -72,7 +72,8 @@ def intersects(a, b):
     return Image.composite(a, Image.new('1', a.size), b).getbbox() is not None
 
 
-def controls(ui, ink_bounds, labels=('Faster', 'Slower', 'Next', 'Previous', 'Play / Pause', 'Back')):
+def controls(ui, ink_bounds, labels=('Faster', 'Slower', 'Next', 'Previous', 'Play / Pause', 'Back'),
+             status='Paused | 100 WPM'):
     anchors = [3+522*(i+1)//5 for i in range(4)]
     ys = [y-12 for y in anchors]
     for i in (1, 2):
@@ -94,7 +95,7 @@ def controls(ui, ink_bounds, labels=('Faster', 'Slower', 'Next', 'Previous', 'Pl
         assert bbox and x <= bbox[0] < bbox[2] <= x+w and y <= bbox[1] < bbox[3] <= y+h
         label_metrics.append(dict(label=label, origin=[origin, y], width=width, ink_bounds=bbox))
         masks.append(mask)
-    width, positions = ui.text('Paused | 100 WPM')
+    width, positions = ui.text(status)
     status_mask = Image.new('1', (792, 528))
     paste_glyphs(status_mask, ui, positions, 33+(732-width)//2, 473)
     masks.append(status_mask)

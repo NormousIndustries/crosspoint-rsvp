@@ -62,7 +62,8 @@ TEST(RsvpTokenizer, EmptyTextAndWhitespaceEmitNothing) {
 TEST(RsvpTokenizer, OutputFailureIsPropagated) {
   RsvpTokenizer tokenizer{nullptr, [](void*, const RsvpToken&) { return false; }};
   tokenizer.reset(0);
-  EXPECT_FALSE(tokenizer.consume("word ", 5, 0));
+  ASSERT_TRUE(tokenizer.consume("word ", 5, 0));
+  EXPECT_FALSE(tokenizer.boundary());
 }
 
 TEST(RsvpHistory, ChapterBoundaryReplayAndEvictionStayBounded) {

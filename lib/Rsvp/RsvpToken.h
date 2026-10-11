@@ -3,12 +3,19 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "RsvpTiming.h"
+
 struct RsvpToken {
   static constexpr size_t MAX_TEXT_BYTES = 200;
   int spineIndex = 0;
   uint32_t startOffset = 0;
   uint32_t endOffset = 0;  // Exclusive visible-codepoint offset, including truncated text.
+  uint32_t fileOffset = 0;
+  uint32_t previousFileOffset = UINT32_MAX;
   uint16_t length = 0;
+  rsvp::Timing timing = rsvp::Timing::Normal;
+  bool paragraphEnd = false;
+  bool chapterEnd = false;
   char text[MAX_TEXT_BYTES + 1]{};
 };
 
@@ -17,9 +24,7 @@ class RsvpHistory {
  public:
   static constexpr size_t CAPACITY = 32;
   const RsvpToken* current() const { return count ? &tokens[(first + cursor) % CAPACITY] : nullptr; }
-  const RsvpToken* peekPrevious() const {
-    return count && cursor ? &tokens[(first + cursor - 1) % CAPACITY] : nullptr;
-  }
+  const RsvpToken* peekPrevious() const { return count && cursor ? &tokens[(first + cursor - 1) % CAPACITY] : nullptr; }
   const RsvpToken* peekNext() const {
     return count && cursor + 1 < count ? &tokens[(first + cursor + 1) % CAPACITY] : nullptr;
   }

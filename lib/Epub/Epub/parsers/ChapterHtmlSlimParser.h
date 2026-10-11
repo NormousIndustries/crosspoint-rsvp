@@ -27,7 +27,8 @@ class ChapterHtmlSlimParser {
  public:
   struct VisibleTextSink {
     void* context = nullptr;
-    // A null text pointer marks a block boundary; offsets remain source codepoints.
+    // Null text: size 0 = word boundary, 1 = paragraph/block boundary, 2 = chapter EOF.
+    // Offsets remain source codepoints. Inline tags do not produce boundaries.
     bool (*consume)(void*, const char*, size_t, uint32_t) = nullptr;
   };
 

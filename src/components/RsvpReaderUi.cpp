@@ -8,8 +8,9 @@
 #include <cstdio>
 
 #include "MappedInputManager.h"
-#include "UITheme.h"
 #include "UIScale.h"
+#include "UITheme.h"
+#include "fontIds.h"
 
 namespace {
 constexpr int MARKER_HALF_WIDTH = 5;
@@ -17,6 +18,16 @@ constexpr int MARKER_HEIGHT = 6;
 constexpr int MARKER_GAP = 18;
 constexpr int WORD_TOP_EXTENT = 158;  // Includes raised decomposed Latin marks.
 constexpr int WORD_BOTTOM_EXTENT = 36;
+constexpr int CONTEXT_FONT = NOTOSANS_16_FONT_ID;
+
+struct ContextMeasure {
+  const GfxRenderer& renderer;
+  int font;
+};
+int measureContext(void* ctx, const char* text) {
+  const auto& measure = *static_cast<ContextMeasure*>(ctx);
+  return measure.renderer.getTextWidth(measure.font, text);
+}
 
 struct GlyphContext {
   const GfxRenderer& renderer;
@@ -52,13 +63,61 @@ RsvpReaderLayout UITheme::rsvpLayout(const GfxRenderer& renderer) const {
                      renderer.getScreenHeight() - top - bottom - 2 * margin);
   layout.focusX = layout.safe.x + layout.safe.width * 38 / 100;
   layout.baseline = top + (renderer.getScreenHeight() - top - bottom) / 2 + 47;
-  layout.word = Rect(layout.safe.x, layout.baseline - WORD_TOP_EXTENT, layout.safe.width,
-                     WORD_TOP_EXTENT + WORD_BOTTOM_EXTENT);
+  layout.word =
+      Rect(layout.safe.x, layout.baseline - WORD_TOP_EXTENT, layout.safe.width, WORD_TOP_EXTENT + WORD_BOTTOM_EXTENT);
   layout.upperTip = layout.word.y - MARKER_GAP;
   layout.lowerTip = layout.word.y + layout.word.height + MARKER_GAP;
   layout.rowHeight = renderer.getLineHeight(uiScaleSpec().smallFontId);
   layout.controlsY = layout.safe.y + layout.safe.height - 2 * layout.rowHeight;
+  layout.contextFont = CONTEXT_FONT;
+  layout.contextLineHeight = renderer.getLineHeight(CONTEXT_FONT) + 8;
+  const int contextY = layout.safe.y + layout.rowHeight + 16;
+  // The right third belongs to the four physically anchored front-button hints.
+  layout.context = Rect(layout.safe.x + 8, contextY, layout.safe.width * 2 / 3 - 24, layout.controlsY - contextY - 12);
   return layout;
+}
+
+void UITheme::drawRsvpContext(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const rsvp::Context& context,
+                              rsvp::ContextPlacement& placement) const {
+  ContextMeasure measure{renderer, layout.contextFont};
+  const char* ellipsis = tr(STR_RSVP_CONTEXT_ELLIPSIS);
+  const int gap = renderer.getSpaceWidth(layout.contextFont) + 2;
+  const int rows = layout.context.height / layout.contextLineHeight;
+  if (!rsvp::fitContext(context, placement, layout.context.width - 8, rows, gap, ellipsis, &measure, measureContext)) {
+    LOG_ERR("RSVP2", "Context geometry unavailable");
+    return;
+  }
+  const auto clip = renderer.getClipRect();
+  renderer.setClipRect(layout.context.x, layout.context.y, layout.context.width, layout.context.height);
+  const int x = layout.context.x + 4;
+  const int y = layout.context.y + (layout.context.height - placement.lines * layout.contextLineHeight) / 2;
+  if (placement.leading) renderer.drawText(layout.contextFont, x + placement.leadingX, y, ellipsis);
+  for (uint8_t i = placement.first; i < placement.last; ++i) {
+    const char* word = context.text + context.offsets[i];
+    if (i == context.selected && placement.shortened) {
+      memcpy(placement.scratch, word, placement.selectedBytes);
+      placement.scratch[placement.selectedBytes] = '\0';
+      word = placement.scratch;
+    }
+    const int wordX = x + placement.x[i];
+    const int wordY = y + placement.row[i] * layout.contextLineHeight;
+    renderer.drawText(layout.contextFont, wordX, wordY, word);
+    int width = renderer.getTextWidth(layout.contextFont, word);
+    if (i == context.selected && placement.shortened) {
+      renderer.drawText(layout.contextFont, wordX + width + gap, wordY, ellipsis);
+      width += gap + renderer.getTextWidth(layout.contextFont, ellipsis);
+    }
+    if (i == context.selected) {
+      const int underline = wordY + layout.contextLineHeight - 3;
+      renderer.drawLine(wordX, underline, wordX + std::max(1, width) - 1, underline);
+      renderer.drawLine(wordX, underline + 1, wordX + std::max(1, width) - 1, underline + 1);
+    }
+  }
+  if (placement.trailing) {
+    renderer.drawText(layout.contextFont, x + placement.trailingX, y + placement.trailingRow * layout.contextLineHeight,
+                      ellipsis);
+  }
+  renderer.setClipRect(clip[0], clip[1], clip[2], clip[3]);
 }
 
 void UITheme::drawRsvpWord(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const char* text,
@@ -84,7 +143,7 @@ void UITheme::drawRsvpPaused(const GfxRenderer& renderer, const RsvpReaderLayout
                              const rsvp::Placement& placement) const {
   const int fontId = uiScaleSpec().smallFontId;
   char summary[96];
-  snprintf(summary, sizeof(summary), tr(STR_RSVP_TEST_PLAY_STATUS), status, wpm);
+  snprintf(summary, sizeof(summary), tr(STR_RSVP_CONTEXT_STATUS), status, wpm);
   hint(renderer, Rect(layout.safe.x, layout.controlsY, layout.safe.width, layout.rowHeight), fontId,
        oversized ? tr(STR_RSVP_WORD_TOO_WIDE) : summary);
   int top, right, bottom, left;
@@ -95,15 +154,16 @@ void UITheme::drawRsvpPaused(const GfxRenderer& renderer, const RsvpReaderLayout
   const int speedWidth = layout.safe.width / 3;
   hint(renderer, Rect(speedX - speedWidth / 2, layout.safe.y, speedWidth, layout.rowHeight), fontId,
        tr(STR_RSVP_FASTER));
-  hint(renderer, Rect(speedX - speedWidth / 2, layout.safe.y + layout.safe.height - layout.rowHeight,
-                       speedWidth, layout.rowHeight), fontId, tr(STR_RSVP_SLOWER));
+  hint(renderer,
+       Rect(speedX - speedWidth / 2, layout.safe.y + layout.safe.height - layout.rowHeight, speedWidth,
+            layout.rowHeight),
+       fontId, tr(STR_RSVP_SLOWER));
   renderer.drawLine(speedX, top + 6, speedX, layout.safe.y - 4);
-  renderer.drawLine(speedX, layout.safe.y + layout.safe.height + 4, speedX,
-                    renderer.getScreenHeight() - bottom - 6);
+  renderer.drawLine(speedX, layout.safe.y + layout.safe.height + 4, speedX, renderer.getScreenHeight() - bottom - 6);
 
   // In landscape CCW the front hardware order runs bottom-to-top. Remaps move hints with actions.
-  const auto labels = input.mapFrontLabels(tr(STR_BACK), tr(STR_RSVP_PLAY_PAUSE), tr(STR_RSVP_PREVIOUS),
-                                           tr(STR_RSVP_NEXT));
+  const auto labels =
+      input.mapFrontLabels(tr(STR_BACK), tr(STR_RSVP_PLAY_PAUSE), tr(STR_RSVP_PREVIOUS), tr(STR_RSVP_NEXT));
   const char* const ordered[] = {labels.btn4, labels.btn3, labels.btn2, labels.btn1};
   for (int i = 0; i < 4; ++i) {
     const int anchorY = top + edgeHeight * (i + 1) / 5;
@@ -111,8 +171,7 @@ void UITheme::drawRsvpPaused(const GfxRenderer& renderer, const RsvpReaderLayout
     const int textRight = layout.safe.x + layout.safe.width;
     const int labelWidth = std::min(speedWidth, renderer.getTextWidth(fontId, ordered[i]));
     const auto& ink = placement.metrics;
-    const bool overlaps = placement.x + ink.left < textRight &&
-                          placement.x + ink.right > textRight - labelWidth &&
+    const bool overlaps = placement.x + ink.left < textRight && placement.x + ink.right > textRight - labelWidth &&
                           layout.baseline + ink.top < labelY + layout.rowHeight &&
                           layout.baseline + ink.bottom > labelY;
     // Only colliding middle hints move; the word's font, focus and baseline stay fixed.

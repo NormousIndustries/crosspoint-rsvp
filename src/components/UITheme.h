@@ -13,7 +13,9 @@ class MappedInputManager;
 struct RsvpReaderLayout;
 namespace rsvp {
 struct Placement;
-}
+struct Context;
+struct ContextPlacement;
+}  // namespace rsvp
 
 class UITheme {
   // Static instance
@@ -38,11 +40,12 @@ class UITheme {
                                       TextVerticalAlignment verticalAlignment = TextVerticalAlignment::CENTER);
   static bool supportsCoverGrid();
   RsvpReaderLayout rsvpLayout(const GfxRenderer& renderer) const;
+  void drawRsvpContext(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const rsvp::Context& context,
+                       rsvp::ContextPlacement& placement) const;
   void drawRsvpWord(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const char* text,
                     const rsvp::Placement& placement) const;
-  void drawRsvpPaused(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const char* status,
-                      uint16_t wpm, bool oversized, const MappedInputManager& input,
-                      const rsvp::Placement& placement) const;
+  void drawRsvpPaused(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const char* status, uint16_t wpm,
+                      bool oversized, const MappedInputManager& input, const rsvp::Placement& placement) const;
   static bool hasCoverGridHome();
   static void drawCoverGridHome(CoverGridHomeUi& home);
   void reload();

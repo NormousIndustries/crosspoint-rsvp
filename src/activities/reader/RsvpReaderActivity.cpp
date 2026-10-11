@@ -53,11 +53,19 @@ void RsvpReaderActivity::sampleHeap() {
 
 void RsvpReaderActivity::reportSummary() {
   if (!cadence.wordsPresented) return;
-  LOG_INF("RSVP1", "SUMMARY words_presented=%u elapsed_us=%lld selected_wpm=%u effective_wpm=%u deadline_misses=%u "
-                   "chapter_changes=%u service_us=%lld heap=%u min_heap=%u min_block=%u",
+  LOG_INF("RSVP1",
+          "SUMMARY words_presented=%u elapsed_us=%lld selected_wpm=%u effective_wpm=%u deadline_misses=%u "
+          "chapter_changes=%u service_us=%lld heap=%u min_heap=%u min_block=%u",
           cadence.wordsPresented, cadence.elapsedUs(), cadence.wpm(), cadence.effectiveWpm(), cadence.deadlineMisses,
           chapterChanges, cadence.serviceUs, ESP.getFreeHeap(), minimumHeap, minimumBlock);
+  LOG_INF("RSVP1",
+          "SMART normal=%u long=%u comma=%u clause=%u sentence=%u paragraph=%u additional_us=%lld "
+          "avg_service_us=%lld system_min_heap=%u",
+          cadence.timingCounts[0], cadence.timingCounts[1], cadence.timingCounts[2], cadence.timingCounts[3],
+          cadence.timingCounts[4], cadence.timingCounts[5], cadence.additionalUs,
+          cadence.serviceUs / cadence.wordsPresented, ESP.getMinFreeHeap());
   cadence.resetSummary();
+  chapterChanges = 0;
 }
 
 void RsvpReaderActivity::finishAtCurrentPosition() {
@@ -109,7 +117,7 @@ void RsvpReaderActivity::loop() {
     if (state.load() == State::Playing) {
       state.store(State::Paused);
       reportSummary();
-    } else if (history.current() && !sourceFailed && (!endReached || history.peekNext())) {
+    } else if (history.current() && !sourceFailed) {
       state.store(State::Playing);
       cadence.resetSummary();
     }
@@ -129,29 +137,38 @@ void RsvpReaderActivity::loop() {
 }
 
 bool RsvpReaderActivity::drawFrame(const RsvpToken* token, bool paused) {
+  const int64_t constructionStart = esp_timer_get_time();
   renderer.setRenderMode(GfxRenderer::BW);
   renderer.clearScreen();
   bool oversized = false;
   rsvp::Placement placement;
-  if (token) {
+  if (token && !paused) {
     const auto orp = rsvp::findOrp(token->text);
-    placement = rsvp::place(token->text, orp, layout.focusX, layout.word.x,
-                                      layout.word.x + layout.word.width, layout.word.y - layout.baseline,
-                                      layout.word.y + layout.word.height - layout.baseline);
+    placement = rsvp::place(token->text, orp, layout.focusX, layout.word.x, layout.word.x + layout.word.width,
+                            layout.word.y - layout.baseline, layout.word.y + layout.word.height - layout.baseline);
     oversized = !placement.fits;
     ++fontPresentations[static_cast<uint8_t>(placement.size)];
     if (oversized) ++oversizedWords;
-    UITheme::getInstance().drawRsvpWord(renderer, layout, token->text, placement);
-  } else {
-    UITheme::getInstance().drawRsvpWord(renderer, layout, nullptr, {});
+    if (!oversized) UITheme::getInstance().drawRsvpWord(renderer, layout, token->text, placement);
   }
+  contextFrame = paused || oversized;
   if (!paused && !oversized) return false;
+  if (token) {
+    if (contextSpine != token->spineIndex || contextOffset != token->startOffset) {
+      if (!source.context(*token, context)) {
+        LOG_ERR("RSVP2", "Context fallback chapter=%d offset=%u", token->spineIndex, token->startOffset);
+      }
+      contextSpine = token->spineIndex;
+      contextOffset = token->startOffset;
+    }
+    UITheme::getInstance().drawRsvpContext(renderer, layout, context, contextPlacement);
+  }
   const char* statusText = message == StrId::STR_LOADING           ? tr(STR_LOADING)
                            : message == StrId::STR_PAGE_LOAD_ERROR ? tr(STR_PAGE_LOAD_ERROR)
                            : message == StrId::STR_END_OF_BOOK     ? tr(STR_END_OF_BOOK)
-                                                                  : tr(STR_RSVP_PAUSED);
-  UITheme::getInstance().drawRsvpPaused(renderer, layout, statusText, cadence.wpm(), oversized, mappedInput,
-                                       placement);
+                                                                   : tr(STR_RSVP_PAUSED);
+  UITheme::getInstance().drawRsvpPaused(renderer, layout, statusText, cadence.wpm(), oversized, mappedInput, {});
+  contextBuildUs = esp_timer_get_time() - constructionStart;
   return oversized;
 }
 
@@ -192,6 +209,7 @@ void RsvpReaderActivity::loadSome() {
     return;
   }
   if (result == RsvpEpubSource::BuildResult::Ready) {
+    if (afterLoading == State::Playing) cadence.resume(esp_timer_get_time());
     state.store(afterLoading);
     message = StrId::STR_RSVP_PAUSED;
     job = Job::Next;
@@ -229,6 +247,7 @@ void RsvpReaderActivity::render(RenderLock&&) {
         }
         if (result == RsvpEpubSource::ReadResult::ChapterEnd) {
           if (source.hasNextChapter()) {
+            cadence.suspend(esp_timer_get_time());
             afterLoading = state.load();
             state.store(State::Loading);
             needsChapter = true;
@@ -249,7 +268,14 @@ void RsvpReaderActivity::render(RenderLock&&) {
       }
       if (stagedAvailable) token = &staged;
     }
-    if (!token) token = history.current();
+    if (!token) {
+      token = history.current();
+      if (endReached) {
+        state.store(State::Paused);
+        message = StrId::STR_END_OF_BOOK;
+        reportSummary();
+      }
+    }
   }
   State resumeState = state.load();
   bool playing = resumeState == State::Playing;
@@ -267,6 +293,15 @@ void RsvpReaderActivity::render(RenderLock&&) {
   const int64_t start = esp_timer_get_time();
   const auto completion = backend.submit();
   const int64_t end = esp_timer_get_time();
+  if (contextFrame) {
+    LOG_INF("RSVP2",
+            "CONTEXT chapter=%d offset=%u words=%u selected=%u bytes=%u lines=%u excerpt=%u,%u "
+            "construct_us=%lld transition_us=%lld heap=%u min_heap=%u block=%u",
+            token ? token->spineIndex : -1, token ? token->startOffset : 0, context.count, context.selected,
+            context.used, contextPlacement.lines, contextPlacement.leading, contextPlacement.trailing, contextBuildUs,
+            contextBuildUs + end - start, ESP.getFreeHeap(), ESP.getMinFreeHeap(),
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  }
   if (!completion.success) {
     sourceFailed = true;
     message = StrId::STR_PAGE_LOAD_ERROR;
@@ -282,7 +317,7 @@ void RsvpReaderActivity::render(RenderLock&&) {
   } else if (previous) {
     history.previous();
   }
-  if (playing) cadence.completed(start, end);
+  if (playing && token) cadence.completed(start, end, token->timing);
   state.store(resumeState);
   sampleHeap();
 }
@@ -291,8 +326,9 @@ void RsvpReaderActivity::onExit() {
   state.store(State::Exiting);
   reportSummary();
   source.close();
-  LOG_INF("RSVP2", "VISUAL_SUMMARY normal=%u long=%u extra_long=%u oversized=%u entry_heap=%u exit_heap=%u "
-                   "min_heap=%u min_block=%u",
+  LOG_INF("RSVP2",
+          "VISUAL_SUMMARY normal=%u long=%u extra_long=%u oversized=%u entry_heap=%u exit_heap=%u "
+          "min_heap=%u min_block=%u",
           fontPresentations[0], fontPresentations[1], fontPresentations[2], oversizedWords, entryHeap,
           ESP.getFreeHeap(), minimumHeap, minimumBlock);
   // Also protects paused auto-sleep/global navigation, which do not deliver a child result.
@@ -300,8 +336,8 @@ void RsvpReaderActivity::onExit() {
     if (!EpubReaderUtils::saveProgress(*epub, token->spineIndex, 0, 0, token->startOffset)) {
       LOG_ERR("RSVP1", "Could not persist final content position");
     }
-    LOG_INF("RSVP1", "EXIT chapter=%d text_offset=%u heap=%u min_heap=%u truncations=%u",
-            token->spineIndex, token->startOffset, ESP.getFreeHeap(), ESP.getMinFreeHeap(), source.truncations());
+    LOG_INF("RSVP1", "EXIT chapter=%d text_offset=%u heap=%u min_heap=%u truncations=%u", token->spineIndex,
+            token->startOffset, ESP.getFreeHeap(), ESP.getMinFreeHeap(), source.truncations());
   }
   renderer.setOrientation(previousOrientation);
   renderer.setRenderMode(previousRenderMode);

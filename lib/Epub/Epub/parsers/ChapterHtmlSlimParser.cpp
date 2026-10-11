@@ -107,6 +107,12 @@ bool isTextSinkBoundary(const char* name) {
          strcmp(name, "pre") == 0 || strcmp(name, "hr") == 0;
 }
 
+size_t textSinkBoundaryKind(const char* name) {
+  return strcmp(name, "br") == 0 || matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS)) || strcmp(name, "hr") == 0
+             ? 0
+             : 1;
+}
+
 const char* getAttribute(const XML_Char** atts, const char* attrName) {
   if (!atts) return nullptr;
   for (int i = 0; atts[i]; i += 2) {
@@ -736,7 +742,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     }
     if (self->skipUntilDepth > self->depth && self->insideBody && self->nonVisibleTextDepth == 0 &&
         isTextSinkBoundary(name)) {
-      if (!self->textSink.consume(self->textSink.context, nullptr, 0, self->visibleTextOffset)) {
+      if (!self->textSink.consume(self->textSink.context, nullptr, textSinkBoundaryKind(name), self->visibleTextOffset)) {
         self->textSinkFailed = true;
       }
     }
@@ -1853,7 +1859,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   if (self->textSink.consume) {
     if (self->skipUntilDepth >= self->depth && self->insideBody && self->nonVisibleTextDepth == 0 &&
         isTextSinkBoundary(name)) {
-      if (!self->textSink.consume(self->textSink.context, nullptr, 0, self->visibleTextOffset)) {
+      if (!self->textSink.consume(self->textSink.context, nullptr, textSinkBoundaryKind(name), self->visibleTextOffset)) {
         self->textSinkFailed = true;
       }
     }
@@ -2209,7 +2215,7 @@ void ChapterHtmlSlimParser::abortParse() {
 
 bool ChapterHtmlSlimParser::finishParse() {
   if (textSink.consume) {
-    const bool ok = !textSinkFailed && textSink.consume(textSink.context, nullptr, 0, visibleTextOffset);
+    const bool ok = !textSinkFailed && textSink.consume(textSink.context, nullptr, 2, visibleTextOffset);
     abortParse();
     if (!ok) LOG_ERR("EHP", "Visible text sink failed at EOF");
     return ok;

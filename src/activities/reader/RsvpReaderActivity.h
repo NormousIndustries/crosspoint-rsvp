@@ -15,8 +15,10 @@ class RsvpReaderActivity final : public Activity {
  public:
   RsvpReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Epub> epub,
                      CrossPointPosition position, bool embeddedStyle)
-      : Activity("RsvpReader", renderer, mappedInput), epub(std::move(epub)),
-        source(this->epub, embeddedStyle), entry(position) {}
+      : Activity("RsvpReader", renderer, mappedInput),
+        epub(std::move(epub)),
+        source(this->epub, embeddedStyle),
+        entry(position) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -55,6 +57,12 @@ class RsvpReaderActivity final : public Activity {
   GfxRenderer::RenderMode previousRenderMode = GfxRenderer::BW;
   bool previousInverted = false;
   RsvpReaderLayout layout;
+  rsvp::Context context;
+  rsvp::ContextPlacement contextPlacement;
+  int contextSpine = -1;
+  uint32_t contextOffset = UINT32_MAX;
+  bool contextFrame = false;
+  int64_t contextBuildUs = 0;
   uint32_t entryHeap = 0;
   uint32_t fontPresentations[3]{};
   uint32_t oversizedWords = 0;
