@@ -40,7 +40,7 @@ void X3WindowTestActivity::onEnter() {
   constexpr int TARGET_WIDTH = 704, TARGET_HEIGHT = 160;
   const int width = std::min(TARGET_WIDTH, safeRect.width - 2 * metrics.contentSidePadding);
   const int height = std::min(TARGET_HEIGHT, safeRect.height - 2 * (metrics.headerHeight + metrics.topPadding));
-  patternRect = Rect(safeRect.x + (safeRect.width - width) / 2, safeRect.y + (safeRect.height - height) / 2, width, height);
+  regionRect = Rect(safeRect.x + (safeRect.width - width) / 2, safeRect.y + (safeRect.height - height) / 2, width, height);
   updateGeometry();
   LOG_INF("X3WIN", "manual-only activity_bytes=%u; Confirm=one transition Left=cleanup Right=geometry Back=exit",
           static_cast<unsigned>(sizeof(*this)));
@@ -48,6 +48,12 @@ void X3WindowTestActivity::onEnter() {
 }
 
 void X3WindowTestActivity::updateGeometry() {
+  patternRect = regionRect;
+  if (geometry == Geometry::Region120 || geometry == Geometry::Region80) {
+    const int height = std::min(geometry == Geometry::Region120 ? 120 : 80, regionRect.height);
+    patternRect.height = height;
+    patternRect.y = regionRect.y + (regionRect.height - height) / 2;
+  }
   screenRect = patternRect;
   if (geometry == Geometry::FullWidth) screenRect = Rect(0, patternRect.y, renderer.getScreenWidth(), patternRect.height);
   if (geometry == Geometry::FullFrame) screenRect = Rect(0, 0, renderer.getScreenWidth(), renderer.getScreenHeight());
@@ -71,7 +77,9 @@ void X3WindowTestActivity::loop() {
   pendingControls = 0;
   if (controls & EXIT) { job = Job::None; finish(); return; }
   if (controls & (CLEAN | GEOMETRY)) {
-    if (controls & GEOMETRY) geometry = static_cast<Geometry>((static_cast<unsigned>(geometry) + 1) % 3);
+    if (controls & GEOMETRY) {
+      geometry = static_cast<Geometry>((static_cast<unsigned>(geometry) + 1) % static_cast<unsigned>(Geometry::Count));
+    }
     patternB = false;
     baselineValid = false;
     job = Job::Baseline;
@@ -104,12 +112,14 @@ void X3WindowTestActivity::drawBaseline() {
   const char* mode = tr(STR_X3_WINDOW_REGION);
   if (geometry == Geometry::FullFrame) mode = tr(STR_X3_WINDOW_FULL_FRAME);
   if (geometry == Geometry::FullWidth) mode = tr(STR_X3_WINDOW_FULL_WIDTH);
+  if (geometry == Geometry::Region120) mode = tr(STR_X3_WINDOW_REGION_120);
+  if (geometry == Geometry::Region80) mode = tr(STR_X3_WINDOW_REGION_80);
   GUI.drawHeader(renderer, Rect(safeRect.x, safeRect.y, safeRect.width - metrics.buttonHintsHeight, metrics.headerHeight),
                  tr(STR_X3_WINDOW_TEST));
   UITheme::drawCenteredText(renderer, safeRect, uiScaleSpec().smallFontId, safeRect.y + metrics.headerHeight + metrics.topPadding,
                             mode);
   UITheme::drawCenteredText(renderer, safeRect, uiScaleSpec().smallFontId,
-                            patternRect.y + patternRect.height + metrics.verticalSpacing, tr(STR_X3_WINDOW_EXTERIOR));
+                            regionRect.y + regionRect.height + metrics.verticalSpacing, tr(STR_X3_WINDOW_EXTERIOR));
   GUI.drawButtonHints(renderer, tr(STR_BACK), tr(STR_X3_WINDOW_STEP), tr(STR_X3_WINDOW_CLEAN), tr(STR_X3_WINDOW_GEOMETRY));
   drawPattern();
 }
@@ -175,6 +185,10 @@ void X3WindowTestActivity::printReport() {
           measurement.busyCompleteUs ? measurement.busyCompleteUs - measurement.drfUs : 0,
           measurement.busyObservedUs ? measurement.busyCompleteUs - measurement.busyObservedUs : 0,
           measurement.timeout, measurement.busyNotObserved);
+  LOG_INF("X3WIN", "WAITS count=%u first_us=%lu last_us=%lu sum_us=%lu post_sync_busy_mask=0x%02X (OLD=bit0 DSP=bit1)",
+          measurement.waitCount, static_cast<unsigned long>(measurement.firstWaitUs),
+          static_cast<unsigned long>(measurement.lastWaitUs), static_cast<unsigned long>(measurement.waitUs),
+          measurement.postSyncBusyMask);
   LOG_INF("X3WIN", "HEAP free=%lu boot_min=%lu largest=%lu (internal 8-bit)", static_cast<unsigned long>(freeHeap),
           static_cast<unsigned long>(minimumHeap), static_cast<unsigned long>(largestBlock));
   if (!baselineValid) LOG_ERR("X3WIN", "STOP: inspect panel; no further experimental refresh until explicit full cleanup");

@@ -1,0 +1,195 @@
+﻿"""Bake bounded 1-bit RSVP EpdFont assets using the installed Pillow/FreeType.
+
+Run with a Python that already supplies Pillow; no firmware build dependency.
+The source Noto Sans and its OFL license live in builtinFonts/source/NotoSans.
+"""
+from pathlib import Path
+import hashlib
+import json
+import struct
+from PIL import Image, ImageFont
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "lib/EpdFont/builtinFonts/source/NotoSans/NotoSans-Regular.ttf"
+OUT = ROOT / "lib/Rsvp/fonts"
+SIZES = (132, 96, 64)
+INTERVALS = ((32, 383), (768, 879), (8208, 8230), (8364, 8364), (65533, 65533))
+
+
+def gpos_kerning():
+    """Read this source's horizontal kern feature, PairPos format 1/2 only.
+
+    Same design-unit -> fp4 conversion as EpdFont/scripts/fontconvert.py.
+    Context-dependent positioning is excluded, as in the built-in pipeline.
+    """
+    data = SOURCE.read_bytes()
+    u16 = lambda p: struct.unpack_from(">H", data, p)[0]
+    i16 = lambda p: struct.unpack_from(">h", data, p)[0]
+    u32 = lambda p: struct.unpack_from(">I", data, p)[0]
+    tables = {data[p:p+4]: u32(p+8) for p in range(12, 12 + 16*u16(4), 16)}
+    cmap = tables[b"cmap"]
+    sub = next(cmap + u32(p+4) for p in range(cmap+4, cmap+4+8*u16(cmap+2), 8)
+               if u16(cmap+u32(p+4)) == 4)
+    segments = u16(sub+6)//2
+    end_base, start_base = sub+14, sub+16+2*segments
+    delta_base, range_base = start_base+2*segments, start_base+4*segments
+    gids = {}
+    for cp in range(33, 127):
+        for i in range(segments):
+            if u16(start_base+2*i) <= cp <= u16(end_base+2*i):
+                ro = u16(range_base+2*i)
+                gid = u16(range_base+2*i+ro+2*(cp-u16(start_base+2*i))) if ro else cp
+                gids[cp] = (gid+i16(delta_base+2*i)) & 0xFFFF if gid else 0
+                break
+
+    def coverage(p):
+        if u16(p) == 1:
+            return [u16(p+4+2*i) for i in range(u16(p+2))]
+        assert u16(p) == 2
+        result = []
+        for i in range(u16(p+2)):
+            r = p+4+6*i
+            result.extend(range(u16(r), u16(r+2)+1))
+        return result
+
+    def class_id(p, gid):
+        if u16(p) == 1:
+            start, count = u16(p+2), u16(p+4)
+            return u16(p+6+2*(gid-start)) if start <= gid < start+count else 0
+        assert u16(p) == 2
+        for i in range(u16(p+2)):
+            r = p+4+6*i
+            if u16(r) <= gid <= u16(r+2):
+                return u16(r+4)
+        return 0
+
+    gpos = tables[b"GPOS"]
+    features, lookups = gpos+u16(gpos+6), gpos+u16(gpos+8)
+    indices = set()
+    for i in range(u16(features)):
+        p = features+2+6*i
+        if data[p:p+4] == b"kern":
+            feature = features+u16(p+4)
+            indices.update(u16(feature+4+2*j) for j in range(u16(feature+2)))
+    pairs = {}
+    for index in sorted(indices):
+        lookup = lookups+u16(lookups+2+2*index)
+        for j in range(u16(lookup+4)):
+            p = lookup+u16(lookup+6+2*j)
+            kind = u16(lookup)
+            if kind == 9:
+                kind, p = u16(p+2), p+u32(p+4)
+            if kind == 8:
+                continue
+            assert kind == 2, f"Unsupported kern lookup {kind}"
+            fmt, vf1, vf2 = u16(p), u16(p+4), u16(p+6)
+            assert vf1 & ~0xF == 0 and vf2 & ~0xF == 0, "Device-dependent kerning"
+            stride = 2*(vf1.bit_count()+vf2.bit_count())
+            x_offset = 2*((vf1 & 3).bit_count())
+            covered = coverage(p+u16(p+2))
+            for lcp, lgid in gids.items():
+                if lgid not in covered:
+                    continue
+                for rcp, rgid in gids.items():
+                    record = None
+                    if fmt == 1:
+                        pairset = p+u16(p+10+2*covered.index(lgid))
+                        for n in range(u16(pairset)):
+                            r = pairset+2+n*(2+stride)
+                            if u16(r) == rgid:
+                                record = r+2
+                                break
+                    else:
+                        assert fmt == 2
+                        row = class_id(p+u16(p+8), lgid)
+                        col = class_id(p+u16(p+10), rgid)
+                        record = p+16+(row*u16(p+14)+col)*stride
+                    if record is not None and vf1 & 4:
+                        pairs[lcp, rcp] = pairs.get((lcp, rcp), 0) + i16(record+x_offset)
+    assert pairs.get((ord('A'), ord('V')), 0) < 0
+    return pairs, u16(tables[b"head"]+18)
+
+
+KERNING, UNITS_PER_EM = gpos_kerning()
+
+
+def emit_array(lines, ctype, name, values):
+    lines.append(f"static constexpr {ctype} {name}[] = {{")
+    for i in range(0, len(values), 16):
+        lines.append("  " + ", ".join(str(v) for v in values[i:i + 16]) + ",")
+    lines.append("};")
+
+
+def generate(size):
+    font = ImageFont.truetype(str(SOURCE), size, layout_engine=ImageFont.Layout.BASIC)
+    prefix = f"rsvp{size}"
+    lines = ["// Generated by scripts/generate_rsvp_fonts.py; do not edit.",
+             "#pragma once", '#include <EpdFontData.h>']
+    bitmap, glyphs, intervals, metrics = [], [], [], {}
+    for first, last in INTERVALS:
+        intervals.append(f"{{{first}, {last}, {len(glyphs)}}}")
+        for cp in range(first, last + 1):
+            mask, offset = font.getmask2(chr(cp), mode="L", anchor="ls")
+            mask_width, _ = mask.size
+            ink = Image.frombytes("L", mask.size, bytes(mask)).point(lambda v: 255 if v >= 128 else 0)
+            bounds = ink.getbbox() or (0, 0, 0, 0)
+            x0, y0, x1, y1 = bounds
+            width, height = x1 - x0, y1 - y0
+            assert width <= 255 and height <= 255
+            packed = bytearray((width * height + 7) // 8)
+            for i in range(width * height):
+                if mask[(y0 + i // width) * mask_width + x0 + i % width] >= 128:
+                    packed[i // 8] |= 0x80 >> (i % 8)
+            advance = round(font.getlength(chr(cp)) * 16)
+            left, top = offset[0] + x0, -offset[1] - y0
+            glyphs.append(f"{{{width}, {height}, {advance}, {left}, {top}, {len(packed)}, {len(bitmap)}}}")
+            metrics[cp] = dict(width=width, height=height, advance=advance,
+                               left=left, top=top, offset=len(bitmap))
+            bitmap.extend(packed)
+    emit_array(lines, "uint8_t", prefix + "Bitmap", bitmap)
+    emit_array(lines, "EpdGlyph", prefix + "Glyphs", glyphs)
+    emit_array(lines, "EpdUnicodeInterval", prefix + "Intervals", intervals)
+    # Match EpdFont's fp4 differential rounding. Class maps stay naturally aligned.
+    cps = list(range(33, 127))
+    rows, cols, kern = [0], [], []
+    for left in cps:
+        for col, right in enumerate(cps):
+            delta = round(KERNING.get((left, right), 0) * size / UNITS_PER_EM * 16)
+            delta = max(-128, min(127, delta))
+            if delta:
+                cols.append(col)
+                kern.append(delta)
+        rows.append(len(kern))
+    emit_array(lines, "uint16_t", prefix + "KernCps", cps)
+    emit_array(lines, "uint8_t", prefix + "KernIds", list(range(1, len(cps) + 1)))
+    emit_array(lines, "uint16_t", prefix + "KernRows", rows)
+    emit_array(lines, "uint8_t", prefix + "KernCols", cols)
+    emit_array(lines, "int8_t", prefix + "KernValues", kern)
+    ascent, descent = font.getmetrics()
+    lines.extend([f"static constexpr EpdFontData {prefix} = {{",
+                  f"  .bitmap = {prefix}Bitmap, .glyph = {prefix}Glyphs, .intervals = {prefix}Intervals,",
+                  f"  .intervalCount = {len(intervals)}, .advanceY = {ascent + descent},",
+                  f"  .ascender = {ascent}, .descender = {-descent}, .is2Bit = false,",
+                  f"  .kernLeftCodepoints = {prefix}KernCps, .kernLeftClassIds = {prefix}KernIds,",
+                  f"  .kernRightCodepoints = {prefix}KernCps, .kernRightClassIds = {prefix}KernIds,",
+                  f"  .kernRowOffsets = {prefix}KernRows, .kernSparseCols = {prefix}KernCols,",
+                  f"  .kernSparseValues = {prefix}KernValues,",
+                  f"  .kernLeftEntryCount = {len(cps)}, .kernRightEntryCount = {len(cps)},",
+                  f"  .kernLeftClassCount = {len(cps)}, .kernRightClassCount = {len(cps)},", "};"])
+    (OUT / f"rsvp_{size}.h").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # ABI sizes on ESP32: EpdGlyph=16, interval=12; shared class maps are reused.
+    return dict(size=size, bitmap_bytes=len(bitmap), glyph_count=len(glyphs),
+                table_bytes=len(glyphs)*16 + len(intervals)*12 + len(cps)*3 + len(rows)*2 + len(cols)*2,
+                ascent=ascent, descent=descent, H=metrics[ord('H')], x=metrics[ord('x')],
+                max_top=max(g['top'] for g in metrics.values()),
+                max_bottom=max(g['height']-g['top'] for g in metrics.values()))
+
+
+if __name__ == "__main__":
+    OUT.mkdir(parents=True, exist_ok=True)
+    report = dict(source=str(SOURCE.relative_to(ROOT)),
+                  source_sha256=hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+                  fonts=[generate(size) for size in SIZES])
+    (OUT / "metrics.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, indent=2))
+

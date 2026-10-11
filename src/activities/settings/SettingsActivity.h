@@ -29,8 +29,6 @@ enum class SettingAction {
   KeyboardLayouts,
   HomeButton,
   About,
-  RsvpDisplayTest,
-  X3WindowTest,
 };
 
 struct SettingInfo {

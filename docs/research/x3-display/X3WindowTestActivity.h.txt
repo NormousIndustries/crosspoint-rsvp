@@ -16,12 +16,12 @@ class X3WindowTestActivity final : public Activity {
   bool handleForcedRefresh() override { return true; }
 
  private:
-  enum class Geometry : uint8_t { FullFrame, FullWidth, Region };
+  enum class Geometry : uint8_t { FullFrame, FullWidth, Region, Region120, Region80, Count };
   enum class Job : uint8_t { None, Baseline, Transition };
   enum Control : uint8_t { STEP = 1, CLEAN = 2, GEOMETRY = 4, EXIT = 8 };
   GfxRenderer::Orientation previousOrientation = GfxRenderer::Portrait;
   GfxRenderer::RenderMode previousRenderMode = GfxRenderer::BW;
-  Rect safeRect, patternRect, screenRect;
+  Rect safeRect, regionRect, patternRect, screenRect;
   HalDisplay::DisplayMemoryRect memoryRect;
   HalDisplay::DisplayMeasurement measurement;
   HalDisplay::WindowFastResult result = HalDisplay::WindowFastResult::InvalidState;

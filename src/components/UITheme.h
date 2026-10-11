@@ -9,6 +9,11 @@
 #include "components/themes/BaseTheme.h"
 
 class CoverGridHomeUi;
+class MappedInputManager;
+struct RsvpReaderLayout;
+namespace rsvp {
+struct Placement;
+}
 
 class UITheme {
   // Static instance
@@ -32,6 +37,12 @@ class UITheme {
                                       EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                                       TextVerticalAlignment verticalAlignment = TextVerticalAlignment::CENTER);
   static bool supportsCoverGrid();
+  RsvpReaderLayout rsvpLayout(const GfxRenderer& renderer) const;
+  void drawRsvpWord(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const char* text,
+                    const rsvp::Placement& placement) const;
+  void drawRsvpPaused(const GfxRenderer& renderer, const RsvpReaderLayout& layout, const char* status,
+                      uint16_t wpm, bool oversized, const MappedInputManager& input,
+                      const rsvp::Placement& placement) const;
   static bool hasCoverGridHome();
   static void drawCoverGridHome(CoverGridHomeUi& home);
   void reload();

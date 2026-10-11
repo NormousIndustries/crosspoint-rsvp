@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <HalFrontlight.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 
 #include "CrossPointSettings.h"
@@ -41,6 +42,7 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, bool h
   items.clear();
   items.reserve(MAX_MENU_ITEMS);
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
+  if (gpio.deviceIsX3()) items.push_back({MenuAction::RSVP, StrId::STR_RSVP});
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }

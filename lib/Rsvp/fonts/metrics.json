@@ -1,0 +1,84 @@
+{
+  "source": "lib\\EpdFont\\builtinFonts\\source\\NotoSans\\NotoSans-Regular.ttf",
+  "source_sha256": "fe8c022f48d8dd29f17b744d16f9346f4357e16f7d4f7be58b000ae7c291b614",
+  "fonts": [
+    {
+      "size": 132,
+      "bitmap_bytes": 284234,
+      "glyph_count": 489,
+      "table_bytes": 9000,
+      "ascent": 142,
+      "descent": 39,
+      "H": {
+        "width": 72,
+        "height": 94,
+        "advance": 1568,
+        "left": 13,
+        "top": 94,
+        "offset": 23518
+      },
+      "x": {
+        "width": 64,
+        "height": 71,
+        "advance": 1120,
+        "left": 3,
+        "top": 71,
+        "offset": 55738
+      },
+      "max_top": 131,
+      "max_bottom": 32
+    },
+    {
+      "size": 96,
+      "bitmap_bytes": 152560,
+      "glyph_count": 489,
+      "table_bytes": 9000,
+      "ascent": 103,
+      "descent": 29,
+      "H": {
+        "width": 53,
+        "height": 69,
+        "advance": 1136,
+        "left": 9,
+        "top": 69,
+        "offset": 12607
+      },
+      "x": {
+        "width": 47,
+        "height": 52,
+        "advance": 816,
+        "left": 2,
+        "top": 52,
+        "offset": 29930
+      },
+      "max_top": 97,
+      "max_bottom": 24
+    },
+    {
+      "size": 64,
+      "bitmap_bytes": 66904,
+      "glyph_count": 489,
+      "table_bytes": 9000,
+      "ascent": 69,
+      "descent": 19,
+      "H": {
+        "width": 35,
+        "height": 46,
+        "advance": 752,
+        "left": 6,
+        "top": 46,
+        "offset": 5537
+      },
+      "x": {
+        "width": 30,
+        "height": 34,
+        "advance": 544,
+        "left": 2,
+        "top": 34,
+        "offset": 13095
+      },
+      "max_top": 64,
+      "max_bottom": 16
+    }
+  ]
+}

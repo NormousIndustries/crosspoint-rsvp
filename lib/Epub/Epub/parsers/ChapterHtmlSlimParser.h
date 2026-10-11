@@ -24,6 +24,16 @@ class Epub;
 #define MAX_WORD_SIZE 200
 
 class ChapterHtmlSlimParser {
+ public:
+  struct VisibleTextSink {
+    void* context = nullptr;
+    // A null text pointer marks a block boundary; offsets remain source codepoints.
+    bool (*consume)(void*, const char*, size_t, uint32_t) = nullptr;
+  };
+
+ private:
+  VisibleTextSink textSink;
+  bool textSinkFailed = false;
   std::shared_ptr<Epub> epub;
   const std::string& filepath;
   GfxRenderer& renderer;
@@ -216,6 +226,7 @@ class ChapterHtmlSlimParser {
         tocAnchors(std::move(tocAnchors)) {}
 
   ~ChapterHtmlSlimParser();
+  void setVisibleTextSink(VisibleTextSink sink) { textSink = sink; }
   void setTextSpacing(const int8_t character, const uint8_t wordPercent) {
     characterSpacing = character;
     wordSpacingPercent = wordPercent;

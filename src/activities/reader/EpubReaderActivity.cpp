@@ -38,6 +38,7 @@
 #include "ReaderFontSizes.h"
 #include "ReaderToolbarUi.h"
 #include "ReaderUtils.h"
+#include "RsvpReaderActivity.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "activities/settings/TextSettingsActivity.h"
@@ -805,6 +806,56 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
   };
 
   switch (action) {
+    case EpubReaderMenuActivity::MenuAction::RSVP: {
+      RenderLock lock;
+      if (!gpio.deviceIsX3() || !epub) return;
+      settleOverlayRefresh();
+      discardOverlayPage();
+      overlay = Overlay::None;
+      const auto position = getCurrentPosition();
+      if (!position.hasVisibleTextOffset) {
+        LOG_ERR("RSVP1", "No visible-text position for entry");
+        requestUpdate();
+        return;
+      }
+      rememberCurrentContentOffset();
+      cachedSpineIndex = currentSpineIndex;
+      cachedChapterTotalPageCount = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
+      nextPageNumber = position.pageNumber;
+      section.reset();  // Release pagination buffers before allocating the bounded RSVP activity.
+      auto activity =
+          makeUniqueNoThrow<RsvpReaderActivity>(renderer, mappedInput, epub, position, SETTINGS.embeddedStyle != 0);
+      if (!activity) {
+        LOG_ERR("RSVP1", "OOM: RSVP activity");
+        requestUpdate();
+        return;
+      }
+      automaticPageTurnActive = false;
+      startActivityForResult(std::move(activity), [this](const ActivityResult& result) {
+        RenderLock returnLock;
+        if (result.isCancelled) return;
+        const auto* position = std::get_if<ProgressChangeResult>(&result.data);
+        if (!position || !position->hasVisibleTextOffset || position->spineIndex < 0 ||
+            position->spineIndex >= epub->getSpineItemsCount()) {
+          LOG_ERR("RSVP1", "Invalid RSVP return position; retaining entry position");
+          return;
+        }
+        clearDeferredReposition();
+        currentSpineIndex = position->spineIndex;
+        pendingOffsetJump = position->visibleTextOffset;
+        currentPageVisibleOffset.reset();
+        nextPageNumber = 0;
+        pendingPageJump.reset();
+        pendingAnchor.clear();
+        pendingPercentJump = false;
+        // Force the ordinary reader save after pagination, including a same-page return.
+        lastSavedSpineIndex = -1;
+        pagesUntilFullRefresh = 0;
+        LOG_INF("RSVP1", "RETURN chapter=%d text_offset=%u mapping=pending-reader-pagination",
+                currentSpineIndex, *pendingOffsetJump);
+      });
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER: {
       const int spineIdx = currentSpineIndex;
       // Release the section while the chapter list is up (mirrors the
@@ -1241,7 +1292,11 @@ void EpubReaderActivity::renderBook() {
         const int target = pendingPageJump.has_value() ? *pendingPageJump : (nextPageNumber < 0 ? 0 : nextPageNumber);
         const bool anchorJump = !pendingAnchor.empty();
 
-        if (section->isPartial() &&
+        const bool partialCoversOffset =
+            !offsetJump.has_value() ||
+            (section->pageCount > 0 &&
+             section->getVisibleTextOffsetForPage(section->pageCount - 1).value_or(0) >= *offsetJump);
+        if (section->isPartial() && partialCoversOffset &&
             (anchorJump ? section->getPageForAnchor(pendingAnchor).has_value()
                         : target + PARTIAL_REBUILD_START_MARGIN < static_cast<int>(section->pageCount))) {
           LOG_DBG("ERS", "Partial covers target %d of %d; deferring extension build", target, section->pageCount);
@@ -1322,7 +1377,18 @@ void EpubReaderActivity::renderBook() {
     if (offsetJump.has_value()) {
       if (const auto offsetPage = section->getPageForVisibleTextOffset(*offsetJump)) {
         section->currentPage = *offsetPage;
+        if (explicitOffsetJump) {
+          LOG_INF("ERS", "Content offset %u mapped to chapter=%d page=%u", *offsetJump, currentSpineIndex, *offsetPage);
+        }
         clearDeferredReposition();
+      } else if (explicitOffsetJump) {
+        LOG_ERR("ERS", "Could not map content offset %u in chapter %d", *offsetJump, currentSpineIndex);
+        const bool retry = ++pageLoadRetryCount <= MAX_PAGE_LOAD_RETRIES;
+        section->clearCache();
+        section.reset();
+        if (retry) requestUpdate();
+        else showBuildError();
+        return;
       }
     }
     if (explicitOffsetJump) {

@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "Rsvp/RsvpTokenizer.h"
+
 #define class struct
 #define private public
 #include "Epub/parsers/ChapterHtmlSlimParser.h"
@@ -43,6 +45,57 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
 
   void SetUp() override { parser.currentTextBlock = std::make_unique<ParsedText>(false); }
 };
+
+TEST_F(ChapterHtmlSlimParserTest, VisibleTextSinkKeepsCanonicalOffsetsWithoutLayout) {
+  struct Capture {
+    std::vector<RsvpToken> tokens;
+    RsvpTokenizer tokenizer{this, [](void* context, const RsvpToken& token) {
+                              static_cast<Capture*>(context)->tokens.push_back(token);
+                              return true;
+                            }};
+  } capture;
+  capture.tokens.reserve(8);
+  capture.tokenizer.reset(2);
+  parser.currentTextBlock.reset();
+  parser.setVisibleTextSink({&capture, [](void* context, const char* text, size_t size, uint32_t offset) {
+                              auto& tokenizer = static_cast<Capture*>(context)->tokenizer;
+                              return text ? tokenizer.consume(text, size, offset) : tokenizer.boundary();
+                            }});
+  parser.xmlParser_ = XML_ParserCreate(nullptr);
+  ASSERT_NE(parser.xmlParser_, nullptr);
+  XML_SetUserData(parser.xmlParser_, &parser);
+  XML_SetElementHandler(parser.xmlParser_, parser.startElement, parser.endElement);
+  XML_SetCharacterDataHandler(parser.xmlParser_, parser.characterData);
+  XML_SetDefaultHandlerExpand(parser.xmlParser_, parser.defaultHandlerExpand);
+  const std::string xml = "<html><head><title>Not emitted</title></head><body>"
+                          "<p>don't <em>well-</em>known&#160;morning,</p>"
+                          "<p>A<span hidden=''>hidden</span>B <script>ignored</script>\xC3\xA9</p>"
+                          "<p><ruby>\xE7\x8C\xAB<rt>neko</rt></ruby></p></body></html>";
+  for (size_t i = 0; i < xml.size(); ++i) {
+    ASSERT_EQ(XML_Parse(parser.xmlParser_, xml.data() + i, 1, i + 1 == xml.size()), XML_STATUS_OK);
+  }
+  ASSERT_TRUE(parser.finishParse());
+  ASSERT_EQ(capture.tokens.size(), 6u);
+  EXPECT_STREQ(capture.tokens[0].text, "don't");
+  EXPECT_STREQ(capture.tokens[1].text, "well-known");
+  EXPECT_STREQ(capture.tokens[2].text, "morning,");
+  EXPECT_STREQ(capture.tokens[3].text, "AB");
+  EXPECT_EQ(capture.tokens[3].startOffset, 25u);
+  EXPECT_EQ(capture.tokens[3].endOffset, 33u);
+  EXPECT_EQ(capture.tokens[4].startOffset, 34u);
+  EXPECT_EQ(capture.tokens[5].startOffset, 35u);
+  EXPECT_EQ(parser.visibleTextOffset, 40u);
+  EXPECT_FALSE(parser.currentPage);
+  EXPECT_FALSE(parser.currentTextBlock);
+  EXPECT_TRUE(parser.anchorData.empty());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, VisibleTextSinkFailureRejectsSection) {
+  parser.setVisibleTextSink({nullptr, [](void*, const char*, size_t, uint32_t) { return false; }});
+  parser.startElement(&parser, "body", nullptr);
+  EXPECT_TRUE(parser.textSinkFailed);
+  EXPECT_FALSE(parser.finishParse());
+}
 
 TEST_F(ChapterHtmlSlimParserTest, RubySurvivesPartialParagraphExtraction) {
   ParsedText text(false);

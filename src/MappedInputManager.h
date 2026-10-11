@@ -113,6 +113,8 @@ class MappedInputManager {
   unsigned long getHeldTime() const;
   const GfxRenderer& getRenderer() const { return renderer; }
   Labels mapLabels(const char* back, const char* confirm, const char* previous, const char* next) const;
+  // Maps logical-role labels to hardware order without navigation/orientation swapping.
+  Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   // Maps four screen-direction labels onto the two physical front-button roles
   // using the same live-orientation transform as ScreenLeft/Right/Up/Down.
   Labels mapDirectionalLabels(const char* back, const char* confirm, const char* left, const char* right,
@@ -134,7 +136,6 @@ class MappedInputManager {
   const GfxRenderer& renderer;
 
   Button mapScreenDirection(Button button) const;
-  Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
   // bookkeeping; the wrappers below give each edge its board meaning.

@@ -100,6 +100,13 @@ bool matches(const char* tag_name, const char* const* possible_tags, size_t coun
 
 bool isNonVisibleTextTag(const char* name) { return VisibleTextUtils::isNonVisibleElement(name); }
 
+bool isTextSinkBoundary(const char* name) {
+  return matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS)) || matches(name, HEADER_TAGS, std::size(HEADER_TAGS)) ||
+         matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS)) || strcmp(name, "body") == 0 || strcmp(name, "td") == 0 ||
+         strcmp(name, "th") == 0 || strcmp(name, "tr") == 0 || strcmp(name, "section") == 0 ||
+         strcmp(name, "pre") == 0 || strcmp(name, "hr") == 0;
+}
+
 const char* getAttribute(const XML_Char** atts, const char* attrName) {
   if (!atts) return nullptr;
   for (int i = 0; atts[i]; i += 2) {
@@ -714,6 +721,27 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
   if (self->insideBody && (self->nonVisibleTextDepth > 0 || isNonVisibleTextTag(name))) {
     self->nonVisibleTextDepth++;
+  }
+
+  if (self->textSink.consume) {
+    if (self->skipUntilDepth >= self->depth && self->insideBody && self->nonVisibleTextDepth == 0) {
+      const char* classes = getAttribute(atts, "class");
+      const char* style = getAttribute(atts, "style");
+      CssStyle visibilityStyle;
+      if (self->cssParser) visibilityStyle = self->cssParser->resolveStyle(name, classes ? classes : "");
+      if (self->embeddedStyle && style) visibilityStyle.applyOver(CssParser::parseInlineStyle(style));
+      const bool hidden = getAttribute(atts, "hidden") != nullptr ||
+                          (visibilityStyle.hasDisplay() && visibilityStyle.display == CssDisplay::None);
+      if (hidden || strcmp(name, "rt") == 0) self->skipUntilDepth = self->depth;
+    }
+    if (self->skipUntilDepth > self->depth && self->insideBody && self->nonVisibleTextDepth == 0 &&
+        isTextSinkBoundary(name)) {
+      if (!self->textSink.consume(self->textSink.context, nullptr, 0, self->visibleTextOffset)) {
+        self->textSinkFailed = true;
+      }
+    }
+    ++self->depth;
+    return;
   }
 
   // Middle of skip
@@ -1570,6 +1598,14 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     }
   }
 
+  if (self->textSink.consume) {
+    if (countVisibleOffsets && self->skipUntilDepth >= self->depth && !self->textSinkFailed &&
+        !self->textSink.consume(self->textSink.context, s, static_cast<size_t>(len), callbackVisibleOffset)) {
+      self->textSinkFailed = true;
+    }
+    return;
+  }
+
   // Nested content needs an enclosing bounded cell collector.
   if (self->tableDepth > 1 && !self->insideTableCell) {
     return;
@@ -1814,6 +1850,20 @@ void XMLCALL ChapterHtmlSlimParser::defaultHandlerExpand(void* userData, const X
 
 void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* name) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
+  if (self->textSink.consume) {
+    if (self->skipUntilDepth >= self->depth && self->insideBody && self->nonVisibleTextDepth == 0 &&
+        isTextSinkBoundary(name)) {
+      if (!self->textSink.consume(self->textSink.context, nullptr, 0, self->visibleTextOffset)) {
+        self->textSinkFailed = true;
+      }
+    }
+    --self->depth;
+    if (self->skipUntilDepth == self->depth) self->skipUntilDepth = INT_MAX;
+    if (self->nonVisibleTextDepth > 0) --self->nonVisibleTextDepth;
+    if (strcasecmp(name, "body") == 0) self->insideBody = false;
+    if (strcasecmp(name, "html") == 0) self->htmlEnded_ = true;
+    return;
+  }
   if (self->nonVisibleTextDepth > 0) {
     self->nonVisibleTextDepth--;
   }
@@ -2041,35 +2091,37 @@ ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { abortParse(); }
 
 bool ChapterHtmlSlimParser::beginParse() {
   htmlEnded_ = false;
-  // Initialize block style stack with a root entry representing "no ancestor block elements".
-  // The user's paragraph alignment is set as the default so child elements without explicit
-  // text-align inherit it correctly through getCombinedBlockStyle.
-  BlockStyle rootBlockStyle;
-  rootBlockStyle.alignment = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
-                                 ? CssTextAlign::Justify
-                                 : static_cast<CssTextAlign>(this->paragraphAlignment);
-  blockStyleStack.clear();
-  blockStyleStack.reserve(8);
-  blockStyleStack.push_back(rootBlockStyle);
+  if (!textSink.consume) {
+    // Initialize block style stack with a root entry representing "no ancestor block elements".
+    // The user's paragraph alignment is set as the default so child elements without explicit
+    // text-align inherit it correctly through getCombinedBlockStyle.
+    BlockStyle rootBlockStyle;
+    rootBlockStyle.alignment = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+                                   ? CssTextAlign::Justify
+                                   : static_cast<CssTextAlign>(this->paragraphAlignment);
+    blockStyleStack.clear();
+    blockStyleStack.reserve(8);
+    blockStyleStack.push_back(rootBlockStyle);
 
-  listStack.clear();
-  listStack.reserve(4);
-  tableDepth = 0;
-  insideTableCell = false;
-  tableRowStacked = false;
-  tableRowsSpannedRemaining = 0;
-  tableCellTextBytes = 0;
-  tableRowCells.clear();
-  for (auto& lines : tableCellLines) {
-    lines.clear();
+    listStack.clear();
+    listStack.reserve(4);
+    tableDepth = 0;
+    insideTableCell = false;
+    tableRowStacked = false;
+    tableRowsSpannedRemaining = 0;
+    tableCellTextBytes = 0;
+    tableRowCells.clear();
+    for (auto& lines : tableCellLines) {
+      lines.clear();
+    }
+    tableLineVisibleOffsets.clear();
+
+    auto paragraphAlignmentBlockStyle = BlockStyle();
+    paragraphAlignmentBlockStyle.textAlignDefined = true;
+    const auto align = rootBlockStyle.alignment;
+    paragraphAlignmentBlockStyle.alignment = align;
+    startNewTextBlock(paragraphAlignmentBlockStyle);
   }
-  tableLineVisibleOffsets.clear();
-
-  auto paragraphAlignmentBlockStyle = BlockStyle();
-  paragraphAlignmentBlockStyle.textAlignDefined = true;
-  const auto align = rootBlockStyle.alignment;
-  paragraphAlignmentBlockStyle.alignment = align;
-  startNewTextBlock(paragraphAlignmentBlockStyle);
 
   xmlParser_ = XML_ParserCreate(nullptr);
   if (!xmlParser_) {
@@ -2101,6 +2153,10 @@ bool ChapterHtmlSlimParser::beginParse() {
 }
 
 ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
+  if (textSinkFailed) {
+    LOG_ERR("EHP", "Visible text sink failed");
+    return ParseStatus::Error;
+  }
   // Layout OOM latched during the previous buffer's callbacks: fail the build
   // instead of emitting pages with silently missing text.
   if (layoutOom || (currentTextBlock && currentTextBlock->hadDroppedWords())) {
@@ -2133,6 +2189,10 @@ ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
     return ParseStatus::Error;
   }
 
+  if (textSinkFailed) {
+    LOG_ERR("EHP", "Visible text sink failed");
+    return ParseStatus::Error;
+  }
   return done ? ParseStatus::Done : ParseStatus::More;
 }
 
@@ -2148,6 +2208,12 @@ void ChapterHtmlSlimParser::abortParse() {
 }
 
 bool ChapterHtmlSlimParser::finishParse() {
+  if (textSink.consume) {
+    const bool ok = !textSinkFailed && textSink.consume(textSink.context, nullptr, 0, visibleTextOffset);
+    abortParse();
+    if (!ok) LOG_ERR("EHP", "Visible text sink failed at EOF");
+    return ok;
+  }
   // Same check as parseStep(): drops in the final buffer would otherwise slip
   // through because Done is returned before the next step's check runs.
   if (layoutOom || (currentTextBlock && currentTextBlock->hadDroppedWords())) {

@@ -1,5 +1,9 @@
 # X3 window-refresh prototype: manual hardware handoff
 
+For the physical UC8253 results, post-OLD second-wait analysis, and the added
+120/80-pixel modes, use [the current height-sweep handoff](x3-window-height-sweep.md).
+The original three-mode handoff below describes the preceding prototype.
+
 **Conditional GO for one supervised region transition.** Compilation establishes
 that the path is buildable; it does not establish addressing correctness on glass,
 reduced BUSY duration, optical transition time, or 500 WPM. Stop after the first
