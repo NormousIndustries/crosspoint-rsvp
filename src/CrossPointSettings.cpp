@@ -12,6 +12,7 @@
 
 #include "I18nKeys.h"
 #include "ReaderFontSizes.h"
+#include "RsvpSettings.h"
 #include "SettingsList.h"
 #include "fontIds.h"
 
@@ -61,6 +62,23 @@ uint8_t CrossPointSettings::sleepTimeoutEnumToMinutes(const uint8_t legacyValue)
   }
 }
 
+bool CrossPointSettings::saveRsvpSpeed(uint16_t wpm) {
+  if (wpm != 50 && wpm != 75 && wpm != 100 && wpm != 125) {
+    LOG_ERR("RSVP1", "Invalid speed preference: %u", wpm);
+    return false;
+  }
+  if (rsvpWpm == wpm) return true;
+  const uint8_t previous = rsvpWpm;
+  rsvpWpm = static_cast<uint8_t>(wpm);
+  if (!saveToFile()) {
+    rsvpWpm = previous;
+    LOG_ERR("RSVP1", "Speed preference save failed: %u", wpm);
+    return false;
+  }
+  LOG_INF("RSVP1", "PREF saved wpm=%u smart=%u", rsvpWpm, rsvpSmartTiming);
+  return true;
+}
+
 void CrossPointSettings::toJson(JsonDocument& doc) const {
   const CrossPointSettings& s = *this;
 
@@ -92,6 +110,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   // option lists depend on the SD font registry), so the generic loop skips them.
   doc["fontFamily"] = fontFamily;
   doc["fontSize"] = fontPointSize;
+  doc["rsvpWpm"] = rsvpWpm;
   // SD card font family name — not in SettingsList, save manually
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
@@ -178,6 +197,8 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       s.*(info.valuePtr) = v;
     }
   }
+
+  rsvp::loadSettings(doc, rsvpWpm, rsvpSmartTiming);
 
   // Older files stored one combined touch mode under "touchReaderControls":
   // 0=off, 1=tap, 2=swipe, 3=inverted tap. Split it into the master toggle

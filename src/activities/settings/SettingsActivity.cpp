@@ -73,6 +73,7 @@ void SettingsActivity::rebuildSettingsLists() {
       // Settings merged into "Text Settings"
       // (they stay in the shared list for the web settings API)
       if (setting.inTextSettings) continue;
+      if (setting.valuePtr == &CrossPointSettings::rsvpSmartTiming && !gpio.deviceIsX3()) continue;
       readerSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_CONTROLS) {
       if (BoardConfig::hasHomeKey() && setting.valuePtr == &CrossPointSettings::longPressMenuFunction) continue;
@@ -452,7 +453,14 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
-  SETTINGS.saveToFile();
+  const bool saved = SETTINGS.saveToFile();
+  if (setting.valuePtr == &CrossPointSettings::rsvpSmartTiming) {
+    if (saved) {
+      LOG_INF("RSVP1", "PREF saved wpm=%u smart=%u", SETTINGS.rsvpWpm, SETTINGS.rsvpSmartTiming);
+    } else {
+      LOG_ERR("RSVP1", "Smart Timing preference save failed");
+    }
+  }
   rebuildSettingsLists();
   applyUiSettingChange(setting.valuePtr);
   activeNav().selected = std::min(ringPos(), settingsCount);

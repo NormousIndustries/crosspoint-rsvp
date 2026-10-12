@@ -200,6 +200,8 @@ struct RsvpEpubSource {
   unsigned cursor = 0, nextCalls = 0, contextCalls = 0;
   int loadedChapter = 0;
   bool failContext = false;
+  bool allEmpty = false, emptyMiddle = false;
+  int finalChapter = 1;
   RsvpEpubSource(std::shared_ptr<Epub>, bool) {
     const char* words[] = {"One", "ends.", "Next", "ends."};
     for (unsigned i = 0; i < 4; ++i) {
@@ -215,12 +217,15 @@ struct RsvpEpubSource {
   }
   bool beginChapter(int chapter, uint32_t, GfxRenderer&) {
     loadedChapter = chapter;
+    if (emptyMiddle) {
+      tokens[2].spineIndex = tokens[3].spineIndex = finalChapter;
+    }
     return true;
   }
   BuildResult buildSome() { return BuildResult::Ready; }
   ReadResult next(RsvpToken& t) {
     ++nextCalls;
-    if (cursor == 4 || (cursor == 2 && !loadedChapter)) return ReadResult::ChapterEnd;
+    if (allEmpty || cursor == 4 || (cursor == 2 && loadedChapter < finalChapter)) return ReadResult::ChapterEnd;
     t = tokens[cursor++];
     return ReadResult::Token;
   }
@@ -230,7 +235,7 @@ struct RsvpEpubSource {
     return !failContext;
   }
   int chapter() { return loadedChapter; }
-  bool hasNextChapter() { return loadedChapter == 0; }
+  bool hasNextChapter() { return loadedChapter < finalChapter; }
   uint32_t truncations() { return 0; }
   void close() {}
 };
@@ -238,8 +243,25 @@ namespace EpubReaderUtils {
 bool saveProgress(Epub&, int, int, int, uint32_t) { return true; }
 }  // namespace EpubReaderUtils
 
-#include "ActivityUnderTest.cpp"
+struct CrossPointSettings {
+  uint8_t rsvpWpm = 100, rsvpSmartTiming = 1;
+  uint8_t persistedWpm = 100, persistedSmartTiming = 1;
+  unsigned writes = 0;
+  bool writeSuccess = true;
+  bool saveToFile() {
+    ++writes;
+    if (!writeSuccess) return false;
+    persistedWpm = rsvpWpm;
+    persistedSmartTiming = rsvpSmartTiming;
+    return true;
+  }
+  bool saveRsvpSpeed(uint16_t wpm);
+} settings;
+#define SETTINGS settings
 #include "ActivityUnderTest.h"
+// Keep generated definitions after their class declaration.
+#include "ActivityUnderTest.cpp"
+#include "SettingsSpeedUnderTest.cpp"
 
 #define CHECK(condition)               \
   do {                                 \
@@ -365,6 +387,7 @@ extern "C" int testMain() {
   CHECK(a.finished && a.result.spineIndex == 1 && a.result.visibleTextOffset == 4 && a.result.hasVisibleTextOffset);
   a.onExit();
   CHECK(renderer.orientation == GfxRenderer::Portrait);
+  a.~RsvpReaderActivity();
   // Failed submission must not commit the staged next word or return its offset.
   ui = {};
   active = new (memory) RsvpReaderActivity(renderer, input, std::shared_ptr<Epub>(&epub), {}, false);
@@ -382,5 +405,121 @@ extern "C" int testMain() {
   input.release(MappedInputManager::Button::Back);
   b.loop();
   CHECK(b.finished && b.result.visibleTextOffset == 0);
+  b.onExit();
+  b.~RsvpReaderActivity();
+  return 0;
+}
+
+extern "C" int releaseMain() {
+  settings = {};
+  for (uint16_t speed : RsvpCadence::SPEEDS) {
+    const auto before = settings.writes;
+    const bool changed = settings.rsvpWpm != speed;
+    CHECK(settings.saveRsvpSpeed(speed));
+    CHECK(settings.persistedWpm == speed && settings.writes == before + changed);
+    CHECK(settings.saveRsvpSpeed(speed) && settings.writes == before + changed);
+  }
+  const auto writes = settings.writes;
+  CHECK(!settings.saveRsvpSpeed(51) && settings.writes == writes);
+  settings.writeSuccess = false;
+  CHECK(!settings.saveRsvpSpeed(75) && settings.rsvpWpm == 125 && settings.persistedWpm == 125);
+  settings.writeSuccess = true;
+  CHECK(settings.saveRsvpSpeed(75) && settings.persistedWpm == 75);
+
+  GfxRenderer renderer;
+  MappedInputManager input;
+  Epub epub;
+  alignas(RsvpReaderActivity) static unsigned char memory[sizeof(RsvpReaderActivity)];
+  submitSuccess = true;
+  submitHook = nullptr;
+  for (unsigned session = 0; session < 40; ++session) {
+    settings.rsvpSmartTiming = session % 2;
+    active = new (memory) RsvpReaderActivity(renderer, input, std::shared_ptr<Epub>(&epub), {}, false);
+    auto& a = *active;
+    a.onEnter();
+    a.render(RenderLock{});
+    a.render(RenderLock{});
+    CHECK(a.cadence.wpm() == 75 && a.cadence.smartTimingEnabled() == bool(session % 2));
+    const auto saves = settings.writes;
+    const auto calls = a.source.nextCalls;
+    for (unsigned cycle = 0; cycle < 20; ++cycle) {
+      input.release(MappedInputManager::Button::Confirm);
+      a.loop();
+      const auto start = now;
+      a.render(RenderLock{});
+      CHECK(a.history.current()->startOffset == 0 && a.source.nextCalls == calls);
+      CHECK(a.state.load() == RsvpReaderActivity::State::Playing);
+      CHECK(!a.cadence.due(start + 799999) && a.cadence.due(start + 800000));
+      settings.rsvpSmartTiming ^= 1;
+      a.loop();
+      CHECK(a.history.current()->startOffset == 0 && a.source.nextCalls == calls);
+      input.release(MappedInputManager::Button::Confirm);
+      a.loop();
+      a.render(RenderLock{});
+      CHECK(a.state.load() == RsvpReaderActivity::State::Paused && a.contextOffset == 0);
+    }
+    input.release(MappedInputManager::Button::Down);
+    a.loop();
+    a.render(RenderLock{});
+    CHECK(a.cadence.wpm() == 100 && settings.writes == saves);
+    input.release(MappedInputManager::Button::Up);
+    a.loop();
+    a.render(RenderLock{});
+    a.onExit();
+    CHECK(settings.writes == saves && settings.rsvpWpm == 75);
+    a.~RsvpReaderActivity();
+  }
+  // Traverse an empty middle chapter and retain exactly the four boundary words.
+  active = new (memory) RsvpReaderActivity(renderer, input, std::shared_ptr<Epub>(&epub), {}, false);
+  auto& a = *active;
+  a.source.emptyMiddle = true;
+  a.source.finalChapter = 2;
+  a.onEnter();
+  a.render(RenderLock{});
+  a.render(RenderLock{});
+  input.release(MappedInputManager::Button::Right);
+  a.loop();
+  a.render(RenderLock{});
+  CHECK(a.history.current()->spineIndex == 0 && a.history.current()->startOffset == 4);
+  input.release(MappedInputManager::Button::Right);
+  a.loop();
+  for (unsigned tick = 0; tick < 8; ++tick) {
+    a.render(RenderLock{});
+    a.loop();
+  }
+  CHECK(a.history.current()->spineIndex == 2 && a.history.current()->startOffset == 0 && a.source.cursor == 3);
+  input.release(MappedInputManager::Button::Left);
+  a.loop();
+  a.render(RenderLock{});
+  CHECK(a.history.current()->spineIndex == 0 && a.source.cursor == 3);
+  input.release(MappedInputManager::Button::Right);
+  a.loop();
+  a.render(RenderLock{});
+  CHECK(a.history.current()->spineIndex == 2 && a.source.cursor == 3);
+  input.release(MappedInputManager::Button::Down);
+  a.loop();
+  a.render(RenderLock{});
+  const auto saves = settings.writes;
+  a.onExit();
+  CHECK(settings.persistedWpm == 100 && settings.writes == saves + 1);
+  a.~RsvpReaderActivity();
+  // An entirely empty EPUB reaches a bounded paused EOF without a selected token.
+  active = new (memory) RsvpReaderActivity(renderer, input, std::shared_ptr<Epub>(&epub), {}, false);
+  auto& b = *active;
+  b.source.allEmpty = true;
+  b.onEnter();
+  for (unsigned tick = 0; tick < 12; ++tick) {
+    b.render(RenderLock{});
+    b.loop();
+  }
+  CHECK(b.endReached && !b.history.current() && b.state.load() == RsvpReaderActivity::State::Paused);
+  const auto eofSubmissions = submissions;
+  for (unsigned tick = 0; tick < 20; ++tick) {
+    b.loop();
+    b.render(RenderLock{});
+  }
+  CHECK(submissions == eofSubmissions);
+  b.onExit();
+  b.~RsvpReaderActivity();
   return 0;
 }

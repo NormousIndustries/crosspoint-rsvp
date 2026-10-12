@@ -6,13 +6,14 @@ word bounds and excerpt ellipses at the X3's actual CCW geometry.
 from pathlib import Path
 import itertools
 import json
+import os
 import re
 import sys
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / 'build/rsvp-v1c2'
-sys.path.insert(0, str(OUT / 'python-deps'))
+OUT = ROOT / os.environ.get('RSVP_TEST_OUTPUT', 'build/rsvp-v1c2')
+sys.path.insert(0, str(ROOT / 'build/rsvp-v1c2/python-deps'))
 from PIL import Image, ImageDraw
 import render_physical_controls as physical
 

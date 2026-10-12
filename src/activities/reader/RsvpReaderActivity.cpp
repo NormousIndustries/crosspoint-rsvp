@@ -6,12 +6,16 @@
 
 #include <algorithm>
 
+#include "CrossPointSettings.h"
 #include "EpubReaderUtils.h"
 #include "components/UITheme.h"
 
 void RsvpReaderActivity::onEnter() {
   Activity::onEnter();
   RenderLock lock;
+  cadence.setWpm(SETTINGS.rsvpWpm);
+  cadence.setSmartTiming(SETTINGS.rsvpSmartTiming != 0);
+  LOG_INF("RSVP1", "PREF loaded wpm=%u smart=%u", cadence.wpm(), cadence.smartTimingEnabled());
   previousOrientation = renderer.getOrientation();
   previousRenderMode = renderer.getRenderMode();
   previousInverted = display.isInverted();
@@ -34,9 +38,10 @@ void RsvpReaderActivity::onEnter() {
           layout.focusX, layout.baseline, layout.word.x, layout.word.y, layout.word.width, layout.word.height,
           layout.upperTip, layout.lowerTip, layout.controlsY, layout.rowHeight);
   sampleHeap();
-  LOG_INF("RSVP1", "ENTER book=%s chapter=%d start_offset=%u activity_bytes=%u parser_bytes=%u heap=%u min_heap=%u",
+  LOG_INF("RSVP1",
+          "ENTER book=%s chapter=%d start_offset=%u activity_bytes=%u parser_bytes=%u heap=%u min_heap=%u block=%u",
           epub->getPath().c_str(), entry.spineIndex, entry.visibleTextOffset, static_cast<unsigned>(sizeof(*this)),
-          static_cast<unsigned>(sizeof(ChapterHtmlSlimParser)), ESP.getFreeHeap(), ESP.getMinFreeHeap());
+          static_cast<unsigned>(sizeof(ChapterHtmlSlimParser)), ESP.getFreeHeap(), ESP.getMinFreeHeap(), minimumBlock);
   requestUpdate();
 }
 
@@ -60,10 +65,10 @@ void RsvpReaderActivity::reportSummary() {
           chapterChanges, cadence.serviceUs, ESP.getFreeHeap(), minimumHeap, minimumBlock);
   LOG_INF("RSVP1",
           "SMART normal=%u long=%u comma=%u clause=%u sentence=%u paragraph=%u additional_us=%lld "
-          "avg_service_us=%lld system_min_heap=%u",
+          "avg_service_us=%lld system_min_heap=%u enabled=%u",
           cadence.timingCounts[0], cadence.timingCounts[1], cadence.timingCounts[2], cadence.timingCounts[3],
           cadence.timingCounts[4], cadence.timingCounts[5], cadence.additionalUs,
-          cadence.serviceUs / cadence.wordsPresented, ESP.getMinFreeHeap());
+          cadence.serviceUs / cadence.wordsPresented, ESP.getMinFreeHeap(), cadence.smartTimingEnabled());
   cadence.resetSummary();
   chapterChanges = 0;
 }
@@ -108,6 +113,12 @@ void RsvpReaderActivity::loop() {
     return;  // Retain controls through bounded chapter-loading ticks.
   }
   if (state.load() == State::Exiting) return;
+  if (cadence.smartTimingEnabled() != (SETTINGS.rsvpSmartTiming != 0)) {
+    reportSummary();
+    cadence.setSmartTiming(SETTINGS.rsvpSmartTiming != 0);
+    cadence.rebase(esp_timer_get_time());
+    LOG_INF("RSVP1", "PREF timing changed smart=%u", cadence.smartTimingEnabled());
+  }
   const uint8_t pending = controls.exchange(0);
   if (pending & (PREVIOUS | NEXT)) {
     state.store(State::Paused);
@@ -209,6 +220,8 @@ void RsvpReaderActivity::loadSome() {
     return;
   }
   if (result == RsvpEpubSource::BuildResult::Ready) {
+    LOG_INF("RSVP1", "CHAPTER ready index=%d heap=%u min_heap=%u block=%u", source.chapter(), ESP.getFreeHeap(),
+            ESP.getMinFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     if (afterLoading == State::Playing) cadence.resume(esp_timer_get_time());
     state.store(afterLoading);
     message = StrId::STR_RSVP_PAUSED;
@@ -326,6 +339,7 @@ void RsvpReaderActivity::onExit() {
   state.store(State::Exiting);
   reportSummary();
   source.close();
+  SETTINGS.saveRsvpSpeed(cadence.wpm());
   LOG_INF("RSVP2",
           "VISUAL_SUMMARY normal=%u long=%u extra_long=%u oversized=%u entry_heap=%u exit_heap=%u "
           "min_heap=%u min_block=%u",

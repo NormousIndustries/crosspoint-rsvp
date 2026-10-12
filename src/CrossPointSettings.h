@@ -297,6 +297,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
+  uint8_t rsvpWpm = 100;
+  uint8_t rsvpSmartTiming = 1;
 
   // Reader screen margin settings
   static constexpr uint8_t SCREEN_MARGIN_MIN = 5;
@@ -396,6 +398,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // the only set a built-in family ships — otherwise the settings UI would keep
   // offering a size nothing renders at. Both fields are persisted in one write.
   void clearSdFontFamily();
+  bool saveRsvpSpeed(uint16_t wpm);
 
   // Resolved status-bar composition. Consumers read the spec; only settings
   // editors read the raw fields.
