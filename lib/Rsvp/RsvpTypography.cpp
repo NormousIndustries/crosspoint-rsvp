@@ -6,6 +6,8 @@
 
 #include "fonts/rsvp_132.h"
 #include "fonts/rsvp_64.h"
+#include "fonts/rsvp_80.h"
+#include "fonts/rsvp_92.h"
 #include "fonts/rsvp_96.h"
 
 namespace rsvp {
@@ -47,6 +49,10 @@ EpdFont font(FontSize size) {
       return EpdFont(&rsvp96);
     case FontSize::ExtraLong:
       return EpdFont(&rsvp64);
+    case FontSize::Compact:
+      return EpdFont(&rsvp92);
+    case FontSize::Small:
+      return EpdFont(&rsvp80);
   }
   return EpdFont(&rsvp64);
 }
@@ -70,8 +76,8 @@ WordMetrics walk(const EpdFont& face, const char* text, size_t orpByte, void* ct
     const bool mark = utf8IsCombiningMark(cp);
     const auto anchor = combiningMark::anchorFor(cp);
     if (!mark && previous) baseX += fp4::toPixel(advance + face.getKerning(previous, cp));
-    const int x = mark ? combiningMark::anchorOver(anchor, baseX, baseLeft, baseWidth, glyph->left, glyph->width)
-                       : baseX;
+    const int x =
+        mark ? combiningMark::anchorOver(anchor, baseX, baseLeft, baseWidth, glyph->left, glyph->width) : baseX;
     const int y = mark ? -combiningMark::raiseAboveBase(anchor, glyph->top, glyph->height, baseTop) : 0;
     if (glyph->width && glyph->height) {
       const int left = x + glyph->left;
@@ -99,7 +105,9 @@ WordMetrics walk(const EpdFont& face, const char* text, size_t orpByte, void* ct
 
 Placement place(const char* text, const Orp& orp, int focusX, int left, int right, int top, int bottom) {
   Placement result;
-  static constexpr FontSize SIZES[] = {FontSize::Normal, FontSize::Long, FontSize::ExtraLong};
+  static constexpr FontSize SIZES[] = {FontSize::Normal, FontSize::Long, FontSize::Compact, FontSize::Small,
+                                       FontSize::ExtraLong};
+  static_assert(sizeof(SIZES) / sizeof(SIZES[0]) == FONT_TIER_COUNT);
   for (const auto size : SIZES) {
     result.size = size;
     result.metrics = walk(font(size), text, orp.byteOffset);

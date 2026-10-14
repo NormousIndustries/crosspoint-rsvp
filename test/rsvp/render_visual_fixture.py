@@ -83,7 +83,7 @@ class Font:
 
 
 def main():
-    fonts = [Font(size) for size in (132, 96, 64)]
+    fonts = [Font(size) for size in (132, 96, 92, 80, 64)]
     assert fonts[0].kern('A', 'V') < 0
     assert fonts[0].glyph('H')[1] == 94 and fonts[0].glyph('x')[1] == 71
     sheet = Image.new('RGB', (792*2, 552*6), 'white')
@@ -123,7 +123,7 @@ def main():
     huge, _ = fonts[-1].measure('W'*200, 4)
     assert huge['right'] > RIGHT
     passage = (ROOT / 'test/rsvp/representative_passage.txt').read_text(encoding='utf-8')
-    counts = {132: 0, 96: 0, 64: 0}
+    counts = {size: 0 for size in (132, 96, 92, 80, 64)}
     for word in passage.split():
         lexical = [i for i, cp in enumerate(word) if cp.isalnum()]
         length = len(lexical)
@@ -145,7 +145,7 @@ def main():
     (ROOT / '.pio/rsvp-v1b-geometry.json').write_text(json.dumps(results, indent=2)+'\n')
     print(json.dumps(results, indent=2))
     print('Representative V1A passage font counts:', counts)
-    print('PASS: 1,467 glyphs, golden ORP examples, kerning, focus, fallback, and English hint bounds')
+    print('PASS: 2,445 glyphs, golden ORP examples, kerning, focus, fallback, and English hint bounds')
 
 
 if __name__ == '__main__':

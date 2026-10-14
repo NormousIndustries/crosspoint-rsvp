@@ -152,7 +152,7 @@ def main():
     safe = (33, 27, 732, 474)
     focus, baseline = 311, 311
     words.FOCUS, words.LEFT, words.RIGHT = focus, 33, 765
-    fonts, ui = [words.Font(size) for size in (132, 96, 64)], UiFont()
+    fonts, ui = [words.Font(size) for size in (132, 96, 92, 80, 64)], UiFont()
     edge_x, edge_height = 783, 522
     speed_x, speed_width, row = 204, 244, 24
     anchors = [top + edge_height*(i+1)//5 for i in range(4)]

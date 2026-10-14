@@ -17,6 +17,12 @@ target_include_directories(RsvpTypographyTest PRIVATE
 target_link_libraries(RsvpTypographyTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(RsvpTypographyTest)
 
+add_executable(TypographyHarness TypographyHarness.cpp
+  ${REPO_ROOT}/lib/Rsvp/RsvpTypography.cpp
+  ${REPO_ROOT}/lib/EpdFont/EpdFont.cpp ${REPO_ROOT}/lib/Utf8/Utf8.cpp)
+target_include_directories(TypographyHarness PRIVATE ${REPO_ROOT}/lib/Rsvp ${REPO_ROOT}/lib/EpdFont ${REPO_ROOT}/lib/Utf8)
+add_test(NAME TypographyHarness COMMAND TypographyHarness)
+
 add_executable(SmartTimingHarness SmartTimingHarness.cpp)
 target_include_directories(SmartTimingHarness PRIVATE ${REPO_ROOT}/lib/Rsvp ${REPO_ROOT}/lib/Utf8)
 add_test(NAME SmartTimingHarness COMMAND SmartTimingHarness)

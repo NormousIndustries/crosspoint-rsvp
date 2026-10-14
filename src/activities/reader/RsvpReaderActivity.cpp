@@ -341,10 +341,10 @@ void RsvpReaderActivity::onExit() {
   source.close();
   SETTINGS.saveRsvpSpeed(cadence.wpm());
   LOG_INF("RSVP2",
-          "VISUAL_SUMMARY normal=%u long=%u extra_long=%u oversized=%u entry_heap=%u exit_heap=%u "
+          "VISUAL_SUMMARY normal=%u long=%u extra_long=%u compact=%u small=%u oversized=%u entry_heap=%u exit_heap=%u "
           "min_heap=%u min_block=%u",
-          fontPresentations[0], fontPresentations[1], fontPresentations[2], oversizedWords, entryHeap,
-          ESP.getFreeHeap(), minimumHeap, minimumBlock);
+          fontPresentations[0], fontPresentations[1], fontPresentations[2], fontPresentations[3], fontPresentations[4],
+          oversizedWords, entryHeap, ESP.getFreeHeap(), minimumHeap, minimumBlock);
   // Also protects paused auto-sleep/global navigation, which do not deliver a child result.
   if (const auto* token = history.current()) {
     if (!EpubReaderUtils::saveProgress(*epub, token->spineIndex, 0, 0, token->startOffset)) {

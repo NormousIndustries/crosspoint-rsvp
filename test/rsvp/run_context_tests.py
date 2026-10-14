@@ -22,7 +22,7 @@ suffix = '.exe' if os.name == 'nt' else ''
 def tool(name):
     return str(tool_dir / ('riscv32-esp-elf-' + name + suffix))
 
-def compile_run(name, sources, includes, extra=()):
+def compile_run(name, sources, includes, extra=(), execution_count=20000000):
     elf, binary = OUT / (name + '.elf'), OUT / (name + '.bin')
     subprocess.run([tool('g++'), '-std=c++20', '-O2', '-march=rv32im', '-mabi=ilp32',
                     '-Wall', '-Wextra', '-Werror', '-Wno-missing-field-initializers',
@@ -45,7 +45,7 @@ def compile_run(name, sources, includes, extra=()):
         emulator.reg_write(UC_RISCV_REG_RA, 0x6F0000)
         emulator.reg_write(UC_RISCV_REG_A0, arg)
         try:
-            emulator.emu_start(addresses[function], 0x6F0000, timeout=30000000, count=20000000)
+            emulator.emu_start(addresses[function], 0x6F0000, timeout=30000000, count=execution_count)
         except Exception:
             pc = emulator.reg_read(UC_RISCV_REG_PC)
             print(f'{name}: exception at PC {pc:#x}; ' + subprocess.check_output(

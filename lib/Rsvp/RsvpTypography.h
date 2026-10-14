@@ -6,7 +6,8 @@
 #include <cstdint>
 
 namespace rsvp {
-enum class FontSize : uint8_t { Normal, Long, ExtraLong };
+enum class FontSize : uint8_t { Normal, Long, ExtraLong, Compact, Small };
+inline constexpr uint8_t FONT_TIER_COUNT = 5;
 
 struct Orp {
   size_t byteOffset = 0;
@@ -38,8 +39,7 @@ constexpr uint8_t orpIndex(uint16_t length) {
 Orp findOrp(const char* text);
 EpdFont font(FontSize size);
 // Measurement and drawing share the exact advance, kerning and mark placement.
-WordMetrics walk(const EpdFont& font, const char* text, size_t orpByte, void* ctx = nullptr,
-                 DrawGlyph draw = nullptr);
-Placement place(const char* text, const Orp& orp, int focusX, int left, int right,
-                int top = -INT32_MAX, int bottom = INT32_MAX);
+WordMetrics walk(const EpdFont& font, const char* text, size_t orpByte, void* ctx = nullptr, DrawGlyph draw = nullptr);
+Placement place(const char* text, const Orp& orp, int focusX, int left, int right, int top = -INT32_MAX,
+                int bottom = INT32_MAX);
 }  // namespace rsvp

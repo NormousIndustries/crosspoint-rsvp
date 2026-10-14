@@ -144,6 +144,7 @@ struct Activity {
   void setResult(ActivityResult) {}
 };
 namespace rsvp {
+inline constexpr uint8_t FONT_TIER_COUNT = 5;
 struct Orp {
   int byteOffset = 0;
 };

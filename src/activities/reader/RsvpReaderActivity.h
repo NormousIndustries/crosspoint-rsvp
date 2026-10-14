@@ -64,7 +64,7 @@ class RsvpReaderActivity final : public Activity {
   bool contextFrame = false;
   int64_t contextBuildUs = 0;
   uint32_t entryHeap = 0;
-  uint32_t fontPresentations[3]{};
+  uint32_t fontPresentations[rsvp::FONT_TIER_COUNT]{};
   uint32_t oversizedWords = 0;
   bool drawFrame(const RsvpToken* token, bool paused);
   void loadSome();

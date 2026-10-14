@@ -55,6 +55,58 @@
       "max_bottom": 24
     },
     {
+      "size": 92,
+      "bitmap_bytes": 137471,
+      "glyph_count": 489,
+      "table_bytes": 9000,
+      "ascent": 99,
+      "descent": 27,
+      "H": {
+        "width": 50,
+        "height": 65,
+        "advance": 1088,
+        "left": 9,
+        "top": 65,
+        "offset": 11350
+      },
+      "x": {
+        "width": 45,
+        "height": 49,
+        "advance": 784,
+        "left": 2,
+        "top": 49,
+        "offset": 26963
+      },
+      "max_top": 91,
+      "max_bottom": 22
+    },
+    {
+      "size": 80,
+      "bitmap_bytes": 104899,
+      "glyph_count": 489,
+      "table_bytes": 9000,
+      "ascent": 86,
+      "descent": 24,
+      "H": {
+        "width": 44,
+        "height": 58,
+        "advance": 960,
+        "left": 8,
+        "top": 58,
+        "offset": 8696
+      },
+      "x": {
+        "width": 39,
+        "height": 43,
+        "advance": 672,
+        "left": 2,
+        "top": 43,
+        "offset": 20612
+      },
+      "max_top": 80,
+      "max_bottom": 20
+    },
+    {
       "size": 64,
       "bitmap_bytes": 66904,
       "glyph_count": 489,

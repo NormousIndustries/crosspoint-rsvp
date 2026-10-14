@@ -12,7 +12,7 @@ from PIL import Image, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "lib/EpdFont/builtinFonts/source/NotoSans/NotoSans-Regular.ttf"
 OUT = ROOT / "lib/Rsvp/fonts"
-SIZES = (132, 96, 64)
+SIZES = (132, 96, 92, 80, 64)
 INTERVALS = ((32, 383), (768, 879), (8208, 8230), (8364, 8364), (65533, 65533))
 
 
